@@ -20,9 +20,9 @@ Of course, that is a non-trivial amount of work. That's where this article comes
 
 Building knowledge, rather than just intuition, about when RWMutex is appropriate takes some background. In this article, I'll assume that you're a programmer who knows how to write software in Go. I'll assume you understand how to write concurrent programs that are free of race conditions, or at least you understand why mutexes are useful. I'll assume you are aware of, but not very familiar with, assembly (there will be some) and hardware concerns like cache coherency (there will be a lot). And, to simplify things, I'll assume the target is amd64; some details will be different for other multi-processor architectures, and little of this will apply to single-threaded ones.
 
-Also note that the Go version current as of writing is 1.16. There are some important changes to many details that may land... eventually. See https://github.com/golang/go/issues/37142.
+Also note that the Go version current as of writing is 1.16. There are some important changes to many details that may land... eventually. See [this issue](https://golang.org/issue/37142).
 
-The code snippets in this post are derived directly from the source code of package sync available at https://github.com/golang/go/tree/release-branch.go1.16/src/sync. In general, I will be removing lines of code specific to the race detector.
+The code snippets in this post are derived directly from the source code of package sync [available on GitHub](https://github.com/golang/go/tree/release-branch.go1.16/src/sync). In general, I will be removing lines of code specific to the race detector.
 
 
 ## Atomic Operations
