@@ -1,4 +1,4 @@
-Choosing RWMutex
+# Choosing RWMutex
 24 Mar 2021
 Tags: sync, concurrency, performance
 Summary: You need to maximize throughput in a concurrent algorithm. Will an RWMutex help?
@@ -7,7 +7,7 @@ Branden J Brown
 https://github.com/zephyrtronium/
 
 
-* Introduction
+## Introduction
 
 Maybe you're converting some old algorithm to be concurrent, and channels feel like an awkward fit.
 Maybe you've profiled your project and found that locking plain mutexes is a big box on the cumulative call graph.
@@ -20,60 +20,64 @@ Of course, that is a non-trivial amount of work. That's where this article comes
 
 Building knowledge, rather than just intuition, about when RWMutex is appropriate takes some background. In this article, I'll assume that you're a programmer who knows how to write software in Go. I'll assume you understand how to write concurrent programs that are free of race conditions, or at least you understand why mutexes are useful. I'll assume you are aware of, but not very familiar with, assembly (there will be some) and hardware concerns like cache coherency (there will be a lot). And, to simplify things, I'll assume the target is amd64; some details will be different for other multi-processor architectures, and little of this will apply to single-threaded ones.
 
-Also note that the Go version current as of writing is 1.16. There are some important changes to many details that may land... eventually. See [[https://golang.org/issue/37142]].
+Also note that the Go version current as of writing is 1.16. There are some important changes to many details that may land... eventually. See [this issue](https://golang.org/issue/37142).
 
-The code snippets in this post are derived directly from the source code of package sync [[https://github.com/golang/go/tree/release-branch.go1.16/src/sync][available on GitHub]]. In general, I will be removing lines of code specific to the race detector.
+The code snippets in this post are derived directly from the source code of package sync [available on GitHub](https://github.com/golang/go/tree/release-branch.go1.16/src/sync). In general, I will be removing lines of code specific to the race detector.
 
 
-* Atomic Operations
+## Atomic Operations
 
 RWMutex is a synchronization primitive, a building block for larger algorithms that allow programs with concurrent execution to have consistent behavior. Mutex is another synchronization primitive. So are channels.
 
-The most basic type of synchronization primitive is the atomic operation. These are single statements that are implemented by the compiler in a special way to ensure that any other atomic operation (which wasn't in the past) on the same variable will always observe the result of the current one. To use the language of the Go memory model, atomic operations are always strictly in _happens_before_ order – they never _happen_concurrently_. Ironically, if an algorithm has no operations that _happen_concurrently_ with a write, we say the algorithm is "concurrent."
+The most basic type of synchronization primitive is the atomic operation. These are single statements that are implemented by the compiler in a special way to ensure that any other atomic operation (which wasn't in the past) on the same variable will always observe the result of the current one. To use the language of the Go memory model, atomic operations are always strictly in *happens before* order – they never *happen concurrently*. Ironically, if an algorithm has no operations that *happen concurrently* with a write, we say the algorithm is "concurrent."
 
-Arguably the most important atomic operation is the atomic compare-and-swap, or CAS. It does what its name suggests: swap the value of a variable for a new one if and only if it is instantaneously equal to some other given value, and indicate to the processor whether the swap happened. x86 has a special instruction to implement it: `LOCK`CMPXCHG`. (`LOCK` is an instruction prefix, essentially the x86 name for "atomic." More on it later.) The details of how assembly instructions map to CPU cycles are complicated, but a decent analogy would be that if this were Python or Javascript instead of machine code, there would be a built-in function for CAS.
+Arguably the most important atomic operation is the atomic compare-and-swap, or CAS. It does what its name suggests: swap the value of a variable for a new one if and only if it is instantaneously equal to some other given value, and indicate to the processor whether the swap happened. x86 has a special instruction to implement it: `LOCK CMPXCHG`. (`LOCK` is an instruction prefix, essentially the x86 name for "atomic." More on it later.) The details of how assembly instructions map to CPU cycles are complicated, but a decent analogy would be that if this were Python or Javascript instead of machine code, there would be a built-in function for CAS.
 
 Other common atomic operations include things like loading, storing, adding, and exchanging; these are exactly the functions available in package sync/atomic. As an aside, there are other atomic operations not directly available in Go. Test-and-set sets a single bit to 1 and returns the value it had prior. x86 also provides atomic versions of bitwise `NOT`, `AND`, `NAND`, `OR`, and `XOR`, as well as subtraction, negation, and fetch-and-add. Furthermore, any operation on a single value can be made atomic by using CAS in a loop, and more complicated protocols can be derived to make large classes of lock-free concurrent algorithms.
 
 "Atomic" has a double meaning. I've been talking about how they're like indivisible operations in concurrent algorithms, but they also serve as the most basic, fundamental pieces of larger algorithms like mutexes and semaphores (which are like mutexes that can be locked a chosen number of times at once), all the way up to highly versatile data structures like `sync.Map`. We're going to see a lot of atomic operations as we tour through Mutex and RWMutex, and they're going to be constantly in the background of our analysis of the performance of those types.
 
 
-* Mutex
+## Mutex
 
 For more context, let's look at the plain sync.Mutex:
 
-	type Mutex struct {
-		state int32
-		sema  uint32
-	}
+```
+type Mutex struct {
+	state int32
+	sema  uint32
+}
+```
 
 Size will be important later, so let's pay attention to the fact that a Mutex is eight bytes. The way `Lock` works is surprisingly simple:
 
-	func (m *Mutex) Lock() {
-		if atomic.CompareAndSwapInt32(&m.state, 0, 1) {
-			return
-		}
-		m.lockSlow()
+```
+func (m *Mutex) Lock() {
+	if atomic.CompareAndSwapInt32(&m.state, 0, 1) {
+		return
 	}
+	m.lockSlow()
+}
 
-	// Pseudocode, and heavily simplified:
-	func (m *Mutex) lockSlow() {
-		iter := 0
-		wakeMeFirst := false
-		for {
-			if iter < maxSpins() {
-				if atomic.CompareAndSwapInt32(&m.state, 0, 1) {
-					return
-				}
-				iter++
-				continue
+// Pseudocode, and heavily simplified:
+func (m *Mutex) lockSlow() {
+	iter := 0
+	wakeMeFirst := false
+	for {
+		if iter < maxSpins() {
+			if atomic.CompareAndSwapInt32(&m.state, 0, 1) {
+				return
 			}
-			m.starving()
-			sleepOnSemaphore(&m.sema, wakeMeFirst)
-			iter = 0
-			wakeMeFirst = true
+			iter++
+			continue
 		}
+		m.starving()
+		sleepOnSemaphore(&m.sema, wakeMeFirst)
+		iter = 0
+		wakeMeFirst = true
 	}
+}
+```
 
 CAS is the core of the mutex algorithm – in any language, not just in Go. (Well, technically speaking, a mutex can also be implemented using test-and-set or fetch-and-add, but CAS can solve all problems those can and more.) Locking a mutex really means detecting when this goroutine is able to atomically change the value of the mutex state.
 
@@ -81,109 +85,119 @@ CAS is the core of the mutex algorithm – in any language, not just in Go. (Wel
 
 At the other end of the protocol, we have `Unlock`:
 
-	func (m *Mutex) Unlock() {
-		new := atomic.AddInt32(&m.state, -1)
-		if new != 0 {
-			// m.lockSlow set some flags, or m wasn't locked.
-			m.unlockSlow(new)
-		}
+```
+func (m *Mutex) Unlock() {
+	new := atomic.AddInt32(&m.state, -1)
+	if new != 0 {
+		// m.lockSlow set some flags, or m wasn't locked.
+		m.unlockSlow(new)
 	}
+}
 
-	// Pseudocode:
-	func (m *Mutex) unlockSlow(new int32) {
-		if new < 0 {
-			unrecoverablePanic("sync: unlock of unlocked mutex")
-		}
-		wakeWaiter(&m.sema)
+// Pseudocode:
+func (m *Mutex) unlockSlow(new int32) {
+	if new < 0 {
+		unrecoverablePanic("sync: unlock of unlocked mutex")
 	}
+	wakeWaiter(&m.sema)
+}
+```
 
 Again, `unlockSlow` is an outlined path so that `Unlock` can be inlined, and it is a little more complicated than I'm showing here (although much simpler than `lockSlow`).
 
 We can summarize the Mutex algorithm as follows:
 
-- Acquiring the mutex: loop until CAS(mutex.state from 0 to 1).
-- Releasing the mutex: if Atomic(mutex.state += -1) < 0 then panic.
+- Acquiring the mutex: loop until `CAS(mutex.state from 0 to 1)`.
+- Releasing the mutex: if `Atomic(mutex.state += -1) < 0` then panic.
 
 
-* RWMutex
+## RWMutex
 
 Now that we know what Mutex looks like, let's look at RWMutex.
 
-	type RWMutex struct {
-		w           Mutex  // held if there are pending writers
-		writerSem   uint32 // semaphore for writers to wait for completing readers
-		readerSem   uint32 // semaphore for readers to wait for completing writers
-		readerCount int32  // number of pending readers
-		readerWait  int32  // number of departing readers
-	}
+```
+type RWMutex struct {
+	w           Mutex  // held if there are pending writers
+	writerSem   uint32 // semaphore for writers to wait for completing readers
+	readerSem   uint32 // semaphore for readers to wait for completing writers
+	readerCount int32  // number of pending readers
+	readerWait  int32  // number of departing readers
+}
+```
 
 The Mutex in the first field is eight bytes, so an RWMutex is twenty-four bytes on its own. An RWMutex being sixteen bytes larger than a Mutex probably isn't going to mean the difference between a functioning program and heap exhaustion, but we'll see how it's an important difference later.
 
 For now, the important observation is that not only does an RWMutex include a Mutex, but it also has many additional fields, which implies additional work. Let's break down `RLock`:
 
-	func (rw *RWMutex) RLock() {
-		if atomic.AddInt32(&rw.readerCount, 1) < 0 {
-			// A writer is pending, wait for it.
-			// Pseudocode:
-			sleepOnSemaphore(&rw.readerSem, false)
-		}
+```
+func (rw *RWMutex) RLock() {
+	if atomic.AddInt32(&rw.readerCount, 1) < 0 {
+		// A writer is pending, wait for it.
+		// Pseudocode:
+		sleepOnSemaphore(&rw.readerSem, false)
 	}
+}
+```
 
 In Mutex.Lock, `sleepOnSemaphore` (the real function is `semacquire1` in package runtime) was a part of the slow path; here, it's the whole thing. We're using an atomic add rather than CAS so that we can track multiple readers; we'll see later that `Lock` ensures readerCount is negative while the rwmutex is locked for writing. All in all, `RLock` amounts to essentially the same amount of work that `Mutex.Lock` does in the happy path, and quite a bit less in the slow path. Perfect for a read-mostly lock, as advertised.
 
 `RUnlock` is very similar to `RLock`, atomically adding -1 to decrement the count, but it does have a full outlined slow path:
 
-	const rwmutexMaxReaders = 1 << 30
+```
+const rwmutexMaxReaders = 1 << 30
 
-	func (rw *RWMutex) RUnlock() {
-		if r := atomic.AddInt32(&rw.readerCount, -1); r < 0 {
-			rw.rUnlockSlow(r)
-		}
+func (rw *RWMutex) RUnlock() {
+	if r := atomic.AddInt32(&rw.readerCount, -1); r < 0 {
+		rw.rUnlockSlow(r)
 	}
+}
 
-	func (rw *RWMutex) rUnlockSlow(readerCount int32) {
-		// Precondition: readerCount < 0
-		if readerCount+1 == 0 || readerCount+1 == -rwmutexMaxReaders {
-			// Pseudocode:
-			unrecoverablePanic("sync: RUnlock of unlocked RWMutex")
-		}
-		// A writer is pending.
-		if atomic.AddInt32(&rw.readerWait, -1) == 0 {
-			// The last reader unblocks the writer.
-			// Pseudocode:
-			wakeWaiter(&rw.writerSem)
-		}
+func (rw *RWMutex) rUnlockSlow(readerCount int32) {
+	// Precondition: readerCount < 0
+	if readerCount+1 == 0 || readerCount+1 == -rwmutexMaxReaders {
+		// Pseudocode:
+		unrecoverablePanic("sync: RUnlock of unlocked RWMutex")
 	}
+	// A writer is pending.
+	if atomic.AddInt32(&rw.readerWait, -1) == 0 {
+		// The last reader unblocks the writer.
+		// Pseudocode:
+		wakeWaiter(&rw.writerSem)
+	}
+}
+```
 
 Still nothing too complicated. But we've also only seen mentions of half the fields in the RWMutex. The rest are needed for the details of the (writer) `Lock` and `Unlock` methods.
 
-	func (rw *RWMutex) Lock() {
-		// First, resolve competition with other writers.
-		rw.w.Lock()
-		// Announce to readers that there is a pending writer.
-		r := atomic.AddInt32(&rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders
-		// Wait for active readers.
-		if r != 0 && atomic.AddInt32(&rw.readerWait, r) != 0 {
-			// Pseudocode:
-			sleepOnSemaphore(&rw.writerSem, false)
-		}
+```
+func (rw *RWMutex) Lock() {
+	// First, resolve competition with other writers.
+	rw.w.Lock()
+	// Announce to readers that there is a pending writer.
+	r := atomic.AddInt32(&rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders
+	// Wait for active readers.
+	if r != 0 && atomic.AddInt32(&rw.readerWait, r) != 0 {
+		// Pseudocode:
+		sleepOnSemaphore(&rw.writerSem, false)
 	}
+}
 
-	func (rw *RWMutex) Unlock() {
-		// Announce to readers that there is no active writer.
-		r := atomic.AddInt32(&rw.readerCount, rwmutexMaxReaders)
-		if r >= rwmutexMaxReaders {
-			// Pseudocode:
-			unrecoverablePanic("sync: Unlock of unlocked RWMutex")
-		}
-		// Unblock blocked readers, if any.
-		for i := 0; i < int(r); i++ {
-			// Pseudocode:
-			wakeWaiter(&rw.readerSem)
-		}
-		// Allow other writers to proceed.
-		rw.w.Unlock()
+func (rw *RWMutex) Unlock() {
+	// Announce to readers that there is no active writer.
+	r := atomic.AddInt32(&rw.readerCount, rwmutexMaxReaders)
+	if r >= rwmutexMaxReaders {
+		// Pseudocode:
+		unrecoverablePanic("sync: Unlock of unlocked RWMutex")
 	}
+	// Unblock blocked readers, if any.
+	for i := 0; i < int(r); i++ {
+		// Pseudocode:
+		wakeWaiter(&rw.readerSem)
+	}
+	// Allow other writers to proceed.
+	rw.w.Unlock()
+}
+```
 
 To lock an RWMutex for writing, you first lock the plain mutex inside it, which only writers try to do, then inform readers that there is a waiting writer. This guarantees "forward progress," the property that any goroutine which attempts to lock the RWMutex – for writing or for reading – will eventually acquire it, assuming each lock is paired appropriately with an unlock. Lastly, if there were any readers at the moment this writer made its announcement, then we record the number of them in `rw.readerWait` and go to sleep.
 
@@ -196,24 +210,24 @@ Now, that very well may be insignificant; often, it's more efficient to spawn `G
 To summarize the protocols for RWMutex:
 
 - Acquiring the rwmutex for reading:
-	1.	Atomic(rw.readerCount += 1).
-	2.	If rw.readerCount is negative, sleep while the writer finishes (in Unlock).
+	1.	`Atomic(rw.readerCount += 1)`.
+	2.	If `rw.readerCount` is negative, sleep while the writer finishes (in `Unlock`).
 - Releasing the rwmutex from reading:
-	1.	Atomic(rw.readerCount += -1).
-	2.	If rw.readerCount is negative:
-		A.	Check the mutex was locked for reading, else panic.
-		B.	Atomic(rw.readerWait += -1).
-		C.	If rw.readerWait is zero, wake the pending writer (sleeping in Lock).
+	1.	`Atomic(rw.readerCount += -1)`.
+	2.	If `rw.readerCount` is negative:
+		1.	Check the mutex was locked for reading, else panic.
+		2.	`Atomic(rw.readerWait += -1)`.
+		3.	If `rw.readerWait` is zero, wake the pending writer (sleeping in `Lock`).
 - Acquiring the rwmutex for writing:
-	1.	Lock the writer mutex. (Loop until CAS(rw.w.state from 0 to 1).)
-	2.	Make rw.readerCount negative to prevent more readers.
-	3.	Set rw.readerWait to the number of active readers.
-	4.	If there were any active readers, sleep until the readers finish (in RUnlock).
+	1.	Lock the writer mutex. (Loop until `CAS(rw.w.state from 0 to 1)`.)
+	2.	Make `rw.readerCount` negative to prevent more readers.
+	3.	Set `rw.readerWait` to the number of active readers.
+	4.	If there were any active readers, sleep until the readers finish (in `RUnlock`).
 - Releasing the rwmutex from writing:
-	1.	Make rw.readerCount positive, allowing readers to acquire the rwmutex.
+	1.	Make `rw.readerCount` positive, allowing readers to acquire the rwmutex.
 	2.	If the rwmutex was not locked for writing, panic.
-	3.	For each reader when the rwmutex was locked for writing: Wake a reader (sleeping in RLock).
-	4.	Unlock the writer mutex. (Atomic(rw.w.state += -1).)
+	3.	For each reader when the rwmutex was locked for writing: Wake a reader (sleeping in `RLock`).
+	4.	Unlock the writer mutex. (`Atomic(rw.w.state += -1)`.)
 
 Of course, there are more API points for RWMutex than there are for Mutex, but we can also see that any individual operation on an RWMutex does more work than any operation on a Mutex does. Well, except for one: if there are no waiting writers, acquiring an RWMutex for reading does only a single atomic addition. So that should be faster than acquiring a plain Mutex, which does a loop, right?
 
@@ -224,20 +238,20 @@ It depends on the hardware and on the exact usage, and it is unlikely for RLock 
 This will take a lot of words, because we are describing some of the deepest magic of hardware.
 
 
-* Computer, Meet Physics
+## Computer, Meet Physics
 
 A common programming adage goes something like, "Memory is fast, hard drives are slow, and networks are really slow." That's usually true, but the situation with memory is complicated.
 
 Here's a simplified description of the steps involved when the CPU needs to access values stored in RAM:
 
-- CPU sends an electrical signal encoding the address it wants to the memory controller.
-- Memory controller sends the electrical signal to the appropriate DIMM.
-- DIMM interface sends the electrical signal to the appropriate microcontroller.
-- Microcontroller sends the electrical signal to physical storage structures.
-- Physical storage structures gradually form a stable electrical signal representing the data they store.
-- Microcontroller sends the electrical signal to the DIMM interface.
-- ... to the memory controller.
-- ... to the CPU.
+1. CPU sends an electrical signal encoding the address it wants to the memory controller.
+2. Memory controller sends the electrical signal to the appropriate DIMM.
+3. DIMM interface sends the electrical signal to the appropriate microcontroller.
+4. Microcontroller sends the electrical signal to physical storage structures.
+5. Physical storage structures gradually form a stable electrical signal representing the data they store.
+6. Microcontroller sends the electrical signal to the DIMM interface.
+7. ... to the memory controller.
+8. ... to the CPU.
 
 All of these operations take time. Fetching values from a typical DDR4-2400 DIMM that has 18-18-18 timings takes more than 65 nanoseconds, even being very optimistic in the calculations. This is somewhere in the vicinity of 100 to 300 CPU clock cycles during which the CPU cannot continue doing work on that thread.
 
@@ -245,10 +259,10 @@ One of the primary ways to improve computer performance is to reduce the number 
 
 Another related innovation is the cache line. On amd64, the machine word size is eight bytes, but caches fetch and write back memory 64 bytes at a time, equivalent to eight machine words. So, programs which access nearby memory tend to issue fewer total fetches to RAM. This is the reason you often hear – and probably eventually measure – that linked lists tend to perform worse than arrays, even on operations where naïve complexity theory indicates the linked list should be much better.
 
-(The cache line size was 64 btes on most 32-bit x86 microarchitectures as well, making them sixteen machine words there. Note that I do say _microarchitectures_, i.e. the specific processor model; cache line sizes are not specified in the instruction set architecture and are allowed to differ between machines.)
+(The cache line size was 64 btes on most 32-bit x86 microarchitectures as well, making them sixteen machine words there. Note that I do say *microarchitectures*, i.e. the specific processor model; cache line sizes are not specified in the instruction set architecture and are allowed to differ between machines.)
 
 
-* A Practical Approach to CPU Caches
+## A Practical Approach to CPU Caches
 
 CPU caches are great! But so is multiprocessing, the technique of having the CPU run multiple programs at once to improve computer performance. Each "core," or CPU thread, gets its own L1 ("level 1") cache at least, often but not always shares L2 cache with some other threads, and usually shares L3 cache with all other threads. The details vary by microarchitecture. Regardless, for the CPU to function, each thread needs to be able to see the others' writes to memory.
 
@@ -262,29 +276,31 @@ The only trouble occurs when a read and a write are issued to the same address b
 
 If, say, the readers were checking whether a mutex was locked, perhaps as part of a `CMPXCHG` instruction (without a `LOCK` prefix) that will change the value at the address if it currently represents "unlocked," then all those threads could successfully make the swap and believe they had acquired the mutex. This does not sound like mutual exclusion.
 
-(Rajiv Prabhakar has an excellent [[https://software.rajivprab.com/2018/04/29/myths-programmers-believe-about-cpu-caches/][explanation of cache coherency]], if you're interested in more of these details.)
+(Rajiv Prabhakar has an excellent [explanation of cache coherency](https://software.rajivprab.com/2018/04/29/myths-programmers-believe-about-cpu-caches/), if you're interested in more of these details.)
 
-* LOCK and Cache
+## `LOCK` and Cache
 
-According to the Intel® 64 and IA-32 Architectures Software Developer's Manual, Volume 2A, the `LOCK` prefix "[i]n a multiprocessor context ... ensures that the processor has exclusive use of any shared memory" while the instruction to which it is prefixed executes. Which is to say, if another thread attempts to access the same cache line, it waits for the write to fully complete. Our write _happens_before_ their read – exactly what it means for a computer operation to be atomic. The reading thread's cache can then see that its version of the memory location is no longer valid, so it can fetch the value from a deeper cache level.
+According to the Intel® 64 and IA-32 Architectures Software Developer's Manual, Volume 2A, the `LOCK` prefix "[i]n a multiprocessor context ... ensures that the processor has exclusive use of any shared memory" while the instruction to which it is prefixed executes. Which is to say, if another thread attempts to access the same cache line, it waits for the write to fully complete. Our write *happens before* their read – exactly what it means for a computer operation to be atomic. The reading thread's cache can then see that its version of the memory location is no longer valid, so it can fetch the value from a deeper cache level.
 
-But there are a few important details about this. First, the name is `LOCK` _for_a_reason_. While one thread has "exclusive use" of a cache line, any others that want to use it have to stall, doing nothing until the privileged thread is done. If every core happens to try to atomically access the same variable at once, they have to wait in turn. Their otherwise parallel execution ends up being completely serialized – we aren't multiprocessing anymore!
+But there are a few important details about this. First, the name is `LOCK` *for a reason*. While one thread has "exclusive use" of a cache line, any others that want to use it have to stall, doing nothing until the privileged thread is done. If every core happens to try to atomically access the same variable at once, they have to wait in turn. Their otherwise parallel execution ends up being completely serialized – we aren't multiprocessing anymore!
 
-Second, a somewhat subtler detail: once an atomic operation completes, the associated cache line needs to be invalidated _only_if_its_contents_changed_. If the cache line is unchanged, then the waiting reader knows its cached value is still valid, so it doesn't have to fetch a new version of the cache line. Which means if a thread tries to acquire an already locked mutex, `LOCK`CMPXCHG` will not invalidate anyone's cache. Only when the mutex state changes are caches invalidated. In theory, a thread can spin for a mutex every few CPU cycles, locking it almost the moment it becomes available.
+Second, a somewhat subtler detail: once an atomic operation completes, the associated cache line needs to be invalidated *only if its contents changed*. If the cache line is unchanged, then the waiting reader knows its cached value is still valid, so it doesn't have to fetch a new version of the cache line. Which means if a thread tries to acquire an already locked mutex, `LOCK CMPXCHG` will not invalidate anyone's cache. Only when the mutex state changes are caches invalidated. In theory, a thread can spin for a mutex every few CPU cycles, locking it almost the moment it becomes available.
 
-On the other hand, other atomic operations might always cause a cache line to invalidate. One example is `LOCK`ADD` with a nonzero addend. Remember, "`LOCK`" is equivalent to "atomic." This is an operation we've seen before.
+On the other hand, other atomic operations might always cause a cache line to invalidate. One example is `LOCK ADD` with a nonzero addend. Remember, "`LOCK`" is equivalent to "atomic." This is an operation we've seen before.
 
 
-* RWMutex Does Not Scale
+## RWMutex Does Not Scale
 
 We've finally brought the discussion back to RWMutex itself, but now we are armed with a conceptual understanding of The Caches. It was a long time ago at this point, but we once made the claim that `RWMutex.RLock` might be faster than `Mutex.Lock`. Recall its implementation:
 
-	func (rw *RWMutex) RLock() {
-		if atomic.AddInt32(&rw.readerCount, 1) < 0 {
-			// A writer is pending, wait for it.
-			runtime_SemacquireMutex(&rw.readerSem, false, 0)
-		}
+```
+func (rw *RWMutex) RLock() {
+	if atomic.AddInt32(&rw.readerCount, 1) < 0 {
+		// A writer is pending, wait for it.
+		runtime_SemacquireMutex(&rw.readerSem, false, 0)
 	}
+}
+```
 
 Atomic add, with an addend guaranteed never to be zero. The bane of valid caches.
 
@@ -294,31 +310,31 @@ Now, on an old dual-core Pentium, cache invalidation isn't the worst thing. Ther
 
 We still haven't gotten to the worst part. Imagine we have four goroutines calling `RLock` on one RWMutex concurrently. Let's say those goroutines happen to be running in parallel on four threads, and each of those threads encounters the atomic add in the same CPU cycle. The situation ends up something like this:
 
-- Simultaneously:
-  T0's LOCK ADD claims readerCount.
-  T1's LOCK ADD cannot claim readerCount. Wait.
-  T2's LOCK ADD cannot claim readerCount. Wait.
-  T3's LOCK ADD cannot claim readerCount. Wait.
-- T0's LOCK ADD finishes. Simultaneously:
-  T1's LOCK ADD finishes waiting and claims readerCount.
-  T2's LOCK ADD finishes waiting but cannot claim. Wait again.
-  T3's LOCK ADD finishes waiting but cannot claim. Wait again.
-- T1's cache sees that its line containing readerCount is invalid and reads the new value from a deeper cache level.
-- T1's LOCK ADD finishes. Simultaneously:
-  T2's LOCK ADD finishes waiting and claims readerCount.
-  T3's LOCK ADD finishes waiting again but cannot claim. Wait.
-- T2's cache sees that its line containing readerCount is invalid and reads the new value from a deeper cache level.
-- T2's LOCK ADD finishes.
-- T3's LOCK ADD finishes waiting and can finally run.
-- T3's cache sees that its line containing readerCount is invalid and reads the new value from a deeper cache level.
-- T3's LOCK ADD finishes.
+1.	Simultaneously:
+	- T0's `LOCK ADD` claims `readerCount`.
+	- T1's `LOCK ADD` cannot claim `readerCount`. Wait.
+	- T2's `LOCK ADD` cannot claim `readerCount`. Wait.
+	- T3's `LOCK ADD` cannot claim `readerCount`. Wait.
+2.	T0's `LOCK ADD` finishes. Simultaneously:
+	- T1's `LOCK ADD` finishes waiting and claims `readerCount`.
+	- T2's `LOCK ADD` finishes waiting but cannot claim. Wait again.
+	- T3's `LOCK ADD` finishes waiting but cannot claim. Wait again.
+3.	T1's cache sees that its line containing `readerCount` is invalid and reads the new value from a deeper cache level.
+4.	T1's `LOCK ADD` finishes. Simultaneously:
+	- T2's `LOCK ADD` finishes waiting and claims `readerCount`.
+	- T3's `LOCK ADD` finishes waiting again but cannot claim. Wait.
+5.	T2's cache sees that its line containing `readerCount` is invalid and reads the new value from a deeper cache level.
+6.	T2's `LOCK ADD` finishes.
+7.	T3's `LOCK ADD` finishes waiting and can finally run.
+8.	T3's cache sees that its line containing `readerCount` is invalid and reads the new value from a deeper cache level.
+9.	T3's `LOCK ADD` finishes.
 
-Remember the part about `LOCK` being a lock? In the worst-case scenario, the running time of `RLock` is actually O(readers)! Probably O(`GOMAXPROCS`) in practice, but if there are enough cores on a server that the runtime can switch goroutines on one thread in the time it takes for all the others to `RLock` – remember that _every_ call forces a cache invalidation – then it's possible to hit that worse upper bound.
+Remember the part about `LOCK` being a lock? In the worst-case scenario, the running time of `RLock` is actually O(readers)! Probably O(`GOMAXPROCS`) in practice, but if there are enough cores on a server that the runtime can switch goroutines on one thread in the time it takes for all the others to `RLock` – remember that *every* call forces a cache invalidation – then it's possible to hit that worse upper bound.
 
-Simply put, RWMutex doesn't scale with CPU count. If more than two threads might be using it even just for reading, performance will degrade. The curve isn't steep, but it is downward. Cache contention in the RWMutex algorithm creates real problems: [[https://golang.org/issue/17973]].
+Simply put, RWMutex doesn't scale with CPU count. If more than two threads might be using it even just for reading, performance will degrade. The curve isn't steep, but it is downward. Cache contention in the RWMutex algorithm creates real problems: https://golang.org/issue/17973.
 
 
-* RWMutex Does Not Fit
+## RWMutex Does Not Fit
 
 There is another core problem with the design of RWMutex. I've alluded to it, and it's possible you might have extrapolated some of the discussion to notice it, but now we'll consider it explicitly.
 
@@ -329,7 +345,7 @@ Now, this problem has much more nuance than the scaling issue. It's actually pos
 Generally speaking, though, for nice cache behavior, small objects are best. RWMutex will probably work against you more often than with you in this regard.
 
 
-* So You Think You Want RWMutex
+## So You Think You Want RWMutex
 
 Maybe you're converting some old algorithm to be concurrent, and channels feel like an awkward fit.
 Maybe you've profiled your project and found that locking plain mutexes is a big box on the cumulative call graph.
@@ -340,9 +356,11 @@ There are, without doubt, many cases where RWMutex makes for clean and maintaina
 
 Just wait until you see my lock-free concurrent trie:
 
-	import (
-		"math/bits"
-		"sync"
-		"sync/atomic"
-		"unsafe"
-	)
+```
+import (
+	"math/bits"
+	"sync"
+	"sync/atomic"
+	"unsafe"
+)
+```
