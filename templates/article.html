@@ -21,4 +21,5 @@
 		{{ range .Sections }}{{ elem $.Template . }}{{ end }}
 	</article>
 </body>
+{{ template "footer" . }}
 {{ end }}
