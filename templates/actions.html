@@ -1,5 +1,5 @@
 {{ define "section" }}
-<a class="permalink" href="#{{ or .ID .FormattedNumber }}"><h{{ .Level }} id="{{ or .ID .FormattedNumber }}">{{ style .Title }}</h{{ len .Number }}></a>
+<a class="permalink" href="#{{ or .ID .FormattedNumber }}"><h{{ .Level }} id="{{ or .ID .FormattedNumber }}">{{ style .Title }}</h{{ .Level }}></a>
 {{ range .Elem }}{{ elem $.Template . }}{{end}}
 {{ end }}
 

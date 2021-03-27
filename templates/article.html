@@ -20,6 +20,6 @@
 		{{ end }}
 		{{ range .Sections }}{{ elem $.Template . }}{{ end }}
 	</article>
+	{{ template "footer" . }}
 </body>
-{{ template "footer" . }}
 {{ end }}
