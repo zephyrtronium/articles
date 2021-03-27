@@ -2,6 +2,6 @@
 
 Stuff I've written. All articles are licensed under a [Creative Commons Attribution-NoDerivatives 4.0 International License](https://creativecommons.org/licenses/by-nd/4.0/).
 
-## High-Performance Go
+The top level is a Go program that generates HTML from the articles using [present](https://pkg.go.dev/golang.org/x/tools@v0.1.0/present). That program itself is licensed under a zlib license; the text thereof is at the top of `ssg.go`.
 
-1. [Choosing RWMutex](https://talks.godoc.org/github.com/zephyrtronium/articles/rwmutex/rwmutex.article) – You need to maximize throughput in a concurrent algorithm. Will an RWMutex help?
+To add a new article, create a directory for it, then a `.article` file in that directory with the same name. E.g., an article called `madoka` needs `./madoka/madoka.article`. Supporting files (images, source code, &c.) can just be placed in the same directory, I think. Once the article is written, add it to `articles.json` under an appropriate section. Lastly, `go run . -out ../zephyrtronium.github.io -mf articles.json`.
