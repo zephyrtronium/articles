@@ -1,0 +1,25 @@
+{{ define "desc" }}
+I'm Branden. Currently a student in computer science at the University of Pittsburgh. Formerly a signal analyst in the United States Air Force. I love learning and helping people learn.
+{{ end }}
+
+{{ define "index" }}{{/* . is []metadata */}}
+<!DOCTYPE html>
+<head>
+	{{ template "head" }}
+	<title>zephyrtronium</title>
+	<meta property="og:title" content="Homepage | zephyrtronium" />
+	<meta property="og:description" content="{{ template "desc" }}" />
+</head>
+<body>
+	<header>
+		<h1>zephyrtronium</h1>
+		<p>{{ template "desc" }}</p>
+	</header>
+	<main>{{ range . }}
+		<h3>{{ .Section }}</h3>
+		<ul>{{ range .Articles }}
+			<li><a href="{{ .URL }}">{{ .Title }}</a> ({{ .Time.Format "_2 Jan 2006" }}) &mdash; {{ .Summary }}</li>{{ end }}
+		</ul>
+	{{ end }}</main>
+</body>
+{{ end }}

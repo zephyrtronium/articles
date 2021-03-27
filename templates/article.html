@@ -1,0 +1,24 @@
+{{ define "root" }}
+{{- /* this template gets *present.Doc */ -}}
+<!DOCTYPE html>
+<head>
+	{{ template "head" }}{{/* from index.html */}}
+
+	<title>{{.Title}} | zephyrtronium</title>
+	<meta property="og:title" content="{{ .Title }}" />
+	<meta property="og:description" content="{{ .Summary }}" />
+</head>
+<body>
+	<header>
+		<h3><a href="/">zephyrtronium</a></h3>
+	</header>
+	<hr>
+	<article>
+		<h1>{{ .Title }}</h1>
+		{{ if .Time }}
+			<p class="date">on {{ .Time.Format "Mon, _2 Jan 2006" }}</p>
+		{{ end }}
+		{{ range .Sections }}{{ elem $.Template . }}{{ end }}
+	</article>
+</body>
+{{ end }}

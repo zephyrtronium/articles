@@ -1,0 +1,40 @@
+{{ define "section" }}
+<a href="#{{ or .ID .FormattedNumber }}"><h{{ .Level }} id="{{ or .ID .FormattedNumber }}">{{ style .Title }}</h{{ len .Number }}></a>
+{{ range .Elem }}{{ elem $.Template . }}{{end}}
+{{ end }}
+
+{{ define "list" }}
+<ul>{{ range .Bullet }}
+	<li>{{ style . }}</li>{{ end }}
+</ul>
+{{ end }}
+
+{{ define "code" }}
+<div class="code"{{ if .Edit }} contenteditable="true" spellcheck="false"{{ end }}>{{ .Text }}</div>
+{{ end }}
+
+{{ define "image" }}
+<div class="image"><img src="{{ .URL }}"{{ with .Height }} height="{{ . }}"{{ end }}{{ with .Width }} width="{{ . }}"{{ end }}></div>
+{{ end }}
+
+{{ define "video" }}
+<div class="video">
+	<video{{ with .Height }} height="{{ . }}"{{ end }}{{ with .Width }} width="{{ . }}"{{ end }} controls>
+		<source src="{{ .URL }}" type="{{ .SourceType }}">
+	</video>
+</div>
+{{ end }}
+
+{{ define "background" }}
+<div class="background"><img src="{{ .URL }}"></div>
+{{ end }}
+
+{{ define "iframe" }}
+<iframe src="{{ .URL }}"{{ with .Height }} height="{{ . }}"{{ end }}{{ with .Width }} width="{{ . }}"{{ end }}></iframe>
+{{ end }}
+
+{{define "link"}}<p class="link"><a href="{{.URL}}" target="_blank">{{style .Label}}</a></p>{{end}}
+
+{{define "html"}}{{.HTML}}{{end}}
+
+{{define "caption"}}<figcaption>{{style .Text}}</figcaption>{{end}}

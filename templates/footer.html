@@ -1,0 +1,15 @@
+{{ define "footer" }}
+<hr>
+<footer>
+	{{ if . }}{{/* footer executed from within an article, with the present.Doc as . */}}
+	{{ if .Tags }}<p>{{ range .Tags }}{{ $ }} {{ end }}</p>{{ end }}
+	{{ end }}
+	<p>
+		My blog uses <a href="https://github.com/oxalorg/sakura" target="_blank" rel="noreferrer noopener">sakura</a>, a classless CSS framework.
+		<br/>
+		Except as otherwise indicated, all content is Copyright 2021 Branden J Brown and is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-nd/4.0/">Creative Commons Attribution-NoDerivatives 4.0 International License</a>.
+		<br/>
+		<a rel="license" href="http://creativecommons.org/licenses/by-nd/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nd/4.0/80x15.png" /></a>
+	</p>
+</footer>
+{{end}}
