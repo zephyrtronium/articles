@@ -260,7 +260,7 @@ One of the primary ways to improve computer performance is to reduce the number 
 
 Another related innovation is the cache line. On amd64, the machine word size is eight bytes, but caches fetch and write back memory 64 bytes at a time, equivalent to eight machine words. So, programs which access nearby memory tend to issue fewer total fetches to RAM. This is the reason you often hear – and probably eventually measure – that linked lists tend to perform worse than arrays, even on operations where naïve complexity theory indicates the linked list should be much better.
 
-(The cache line size was 64 btes on most 32-bit x86 microarchitectures as well, making them sixteen machine words there. Note that I do say *microarchitectures*, i.e. the specific processor model; cache line sizes are not specified in the instruction set architecture and are allowed to differ between machines.)
+(The cache line size was 64 bytes on most 32-bit x86 microarchitectures as well, making them sixteen machine words there. Note that I do say *microarchitectures*, i.e. the specific processor model; cache line sizes are not specified in the instruction set architecture and are allowed to differ between machines.)
 
 
 ## A Practical Approach to CPU Caches
