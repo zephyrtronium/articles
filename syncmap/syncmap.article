@@ -1,5 +1,5 @@
 # Sync Map, Reconstructed
-High-Performance Go
+Data Structures for Throughput
 13 Apr 2021
 Tags: sync, concurrency, performance
 Summary: Where does sync.Map actually fit? Let's rebuild it from scratch to find out!

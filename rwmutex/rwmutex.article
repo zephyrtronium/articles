@@ -1,5 +1,5 @@
 # Choosing RWMutex
-High-Performance Go
+Data Structures for Throughput
 24 Mar 2021
 Tags: sync, concurrency, performance
 Summary: You need to maximize throughput in a concurrent algorithm. Will an RWMutex help?

@@ -1,6 +1,6 @@
 [
 	{
-		"section": "High-Performance Go",
+		"section": "Data Structures for Throughput",
 		"articles": [
 			"rwmutex",
 			"syncmap"
