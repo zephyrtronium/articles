@@ -15,8 +15,11 @@
 	<hr>
 	<article>
 		<h1>{{ .Title }}</h1>
-		{{ if .Time }}
-			<p class="date">on {{ .Time.Format "Mon, _2 Jan 2006" }}</p>
+		{{ if or .Subtitle .Time }}
+		<div class="subtitle">
+			{{ if .Subtitle }}<p class="chapter">in {{ .Subtitle }}</p>{{ end }}
+			{{ if .Time }}<p class="date">on {{ .Time.Format "Mon, _2 Jan 2006" }}</p>{{ end }}
+		</div>
 		{{ end }}
 		{{ range .Sections }}{{ elem $.Template . }}{{ end }}
 	</article>
