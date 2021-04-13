@@ -1,0 +1,406 @@
+# Sync Map, Reconstructed
+High-Performance Go
+13 Apr 2021
+Tags: sync, concurrency, performance
+Summary: Where does sync.Map actually fit? Let's rebuild it from scratch to find out!
+
+Branden J Brown
+https://github.com/zephyrtronium
+
+
+## Introduction
+
+One of my favorite things about Go is that maps are built in to the language. But in a language that also has first-class concurrency primitives, it quickly becomes natural to ask: How do I use maps from multiple goroutines?
+
+There are a few trivial cases. Maps that don't change need no synchronization. A map that does change but which is not guarded by some synchronization mechanism cannot be used concurrently. So, we'll assume the question is really, "How do I use a map safely from multiple goroutines, some of which add keys or modify values at existing keys?"
+
+Package sync contains a Map type which is "safe for concurrent use by multiple goroutines without additional locking or contention." But the documentation almost begs you not to use it:
+
+>	The Map type is specialized. Most code should use a plain Go map
+>	instead, with separate locking or coordination, for better type
+>	safety and to make it easier to maintain other invariants along
+>	with the map content.
+
+It lists two specific use cases: any key is written once and read many times, or different goroutines work with disjoint sets of keys. To understand why it works for those, we can analyze the source code and reverse the thought processes to figure it out. But... "we can," as in "it is possible, in principle." Syncmap is a rather involved data structure, full of interconnecting parts to cover different combinations of concurrent methods.
+
+Instead of trying to break down all of that, we'll work backward: start with a description of the behavior we want, then implement it in steps. By doing all the interconnecting ourselves, it's much easier to understand why each piece is needed. We'll end up with a result very similar to the standard library's.
+
+In this article, I'll assume that you can write software in Go and understand how to write concurrent programs using channels and mutexes. I'll also assume you at least conceptually undertsand atomic operations and CPU caches; my [article on sync.RWMutex](rwmutex.html) is a sufficient introduction.
+
+The current Go version as of writing is 1.16. There are major changes proposed to how sync.Map works internally, but it seems unlikely that they'll happen soon.
+
+
+## Planning
+
+Our goal is to create a map, a data structure associating keys to values, which allows concurrent use. Specifically, we want to be able to look up keys concurrently with adding and modifying (possibly the same) keys, and to have those lookups and modifications be atomic and consistent – essentially, we never want to observe half-modified keys.
+
+We also want to keep in mind the use cases for our data structure. Concretely, our goal here is that readers don't block each other when looking up the same or different keys, and writers also don't when modifying existing keys. We should be avoiding mutexes along paths involved in these cases.
+
+We also have the operations we need to support: `Store`, `Load`, `LoadOrStore`, `Delete`, `LoadAndDelete`, and `Range`. This list is roughly in order of how much they increase the complexity of the implementation.
+
+Lastly, as a change from sync.Map, we'll make our syncmap type use strings as keys, instead of `interface{}`. My reason for this is performance. Experience with profiling code using sync.Map has shown that the runtime function for obtaining hashes of `interface{}` values tends to show up very high relative to the functions for obtaining the hashes of the underlying values. Of course, this change is a very small one, just for the scope of this article; you could follow along and build your own version using whatever comparable key type you'd like.
+
+
+## First Lines of Code
+
+Let's start by writing `Store`. Based on our plan for this to be read-mostly, it's alright for `Store` to acquire a mutex, at least for now.
+
+```
+type Map struct {
+	mu sync.Mutex
+	v  map[string]interface{}
+}
+
+func (m *Map) Store(k string, v interface{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.v == nil {
+		m.v = make(map[string]interface{})
+	}
+	m.v[k] = v
+}
+```
+
+One interesting point here: the fact that the mutex is the first field is significant. It means that a pointer to a Map value is, aside from type, the same as a pointer to the mutex. In turn, this means the compiler doesn't need to generate code to compute the offset to the mutex when calling `m.mu.Lock()`. So, the call to `Lock` happens just slightly more quickly. (I'll adjust the field in that position later, but the reason will always be the same.)
+
+Now that we've written our first method, let's move on to seeing why it doesn't work!
+
+
+## Load
+
+`Store` acquires a mutex, so each call to it ends up being serialized, and there cannot be race conditions. But the whole point of the map is for `Load` to be able to happen concurrently with calls to `Store`, without acquiring a mutex, if the key exists.
+
+There are lots of reasons we can't do this with what we have so far. If `Store` initializes `m.v` while `Load` could be running, we have a race condition. If `Load` reads while `Store` could be writing, then we have a different kind of race condition – and the runtime will throw an unrecoverable panic.
+
+Time for a rewrite!
+
+Addressing the first race condition, where `Store` creates the map, is simple with `atomic.Value`. This effectively gives us a read/write variable that is "magically" race-free. We'll change the Map type definition to replace `map[string]interface{}` with it, and then update `Store` to use it:
+
+```
+func (m *Map) Store(k string, v interface{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mv, _ := m.v.Load().(map[string]interface{})
+	if mv == nil {
+		mv = make(map[string]interface{})
+		m.v.Store(mv)
+	}
+	mv[k] = v
+}
+```
+
+A cool Go tip here: we do `mv, _ := (...).(T)` instead of just `mv := (...).(T)`. This way, `mv` is nil if and only if it is not a `map[string]interface{}`, which in our case can only be when the atomic value hasn't been set yet. And, an additional note, since `Store` holds a mutex for its entire duration, we don't need to worry about multiple goroutines trying to create the initial map.
+
+At this point, `Load` is exceptionally elegant:
+
+```
+func (m *Map) Load(k string) (v interface{}, ok bool) {
+	mv, _ := m.v.Load().(map[string]interface{})
+	v, ok = mv[k]
+	return v, ok
+}
+```
+
+Another cool Go tip: we're doing `mv, _ := (...).(T)` again, so if the map hasn't yet been initialized, `mv` is nil; and by Go's zero value rules, a nil map *can* be read, it just contains no elements. So, if nothing has been `Store`d yet, then `mv` is empty, so `mv[k]` is `nil, false` for any `k`. Neat.
+
+This fixes the race on creating the map, but we haven't fixed the other race condition, on values within it. There are several ways to solve this, so our choices are guided by our use cases: few writes with many reads, or goroutines updating disjoint sets of keys. Remember, "use case" means "path that avoids mutexes."
+
+Reading from an atomically consistent map is still a great way to accomplish our goals for `Load`. So, how about we just add another map, one which `Load` has to acquire a mutex to read as well? Then we can have `Load` occasionally "promote" this dirty map to the atomic one by tracking how many times it acquires the mutex.
+
+We'll implement the "dirty map" idea, but not quite yet. It lets us create new keys in the map, but it doesn't allow us to modify keys that are already set. We need a different trick for that.
+
+
+## Indirection
+
+"All problems in computer science can be solved by another level of indirection." – David Wheeler, the first Ph.D. in computer science.
+
+Indeed, we can get atomic updates to map values by adding pointers. Wherever we encounter an issue trying to solve this problem, add a pointer. Because, you see, package sync/atomic provides atomic operations on `unsafe.Pointer` values. (We can't use atomic.Value because it doesn't allow the stored type to change, which our API doesn't forbid.)
+
+So, cue package unsafe. We'll be shedding type safety internally! If I weren't writing tests earlier (ha ha why would I ever not), then I'm certainly writing them now. Once generics eventually arrive, we'll have type-safe atomic operations on pointers; for now, let's define some methods to isolate uses of `unsafe`.
+
+```
+type entry struct {
+	p unsafe.Pointer // *interface{}
+}
+
+func (e *entry) load() interface{} {
+	if e == nil {
+		return nil
+	}
+	return *(*interface{})(atomic.LoadPointer(&e.p))
+}
+
+func (e *entry) store(v interface{}) {
+	atomic.StorePointer(&e.p, unsafe.Pointer(&v))
+}
+```
+
+Since we haven't yet implemented the dirty map idea, we don't actually need to change our type definitions to use this type. We just need to update the type assertions in `Load` and `Store`.
+
+Just one detail regarding that: the methods on `entry` need pointer receivers, but map values aren't addressable. So, the type we really need – which we get by throwing another pointer at the problem, as predicted – is `map[string]*entry`. (We could work around this by writing an entire hashmap implementation, but that's a bit more effort.) Finally, we can add the dirty map for creating new keys, then update Load and Store to use all our new synchronization techniques.
+
+
+### A Basic Synchronized Load/Store Map Implementation
+
+The code at this point is a bit long, but it will be a solid reference for the rest of this article. I'll also throw in the definition of `LoadOrStore`, since at this point, it's straightforward. I've included it without comments; see whether you can explain each line to yourself based on what we've talked about so far.
+
+```
+type Map struct {
+	v atomic.Value // map[string]*entry
+
+	mu     sync.Mutex
+	dirty  map[string]*entry
+	misses int
+}
+
+func (m *Map) Store(k string, v interface{}) {
+	mv, _ := m.v.Load().(map[string]*entry)
+	e := mv[k]
+	if e == nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		// Reload e in case another goroutine set it while we were locking.
+		mv, _ = m.v.Load().(map[string]*entry)
+		e = mv[k]
+		if e == nil {
+			e = m.dirty[k]
+			if e == nil {
+				m.miss() // Ensures dirty is non-nil.
+				m.dirty[k] = newEntry(v)
+				return
+			}
+		}
+	}
+	e.store(v)
+}
+
+func (m *Map) Load(k string) (v interface{}, ok bool) {
+	mv, _ := m.v.Load().(map[string]*entry)
+	e, ok := mv[k]
+	if !ok {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		// Reload e in case another goroutine set it while we were locking.
+		mv, _ = m.v.Load().(map[string]*entry)
+		e, ok = mv[k]
+		if !ok {
+			e, ok = m.dirty[k]
+			m.miss() // Update miss counter and possibly promote m.dirty.
+		}
+	}
+	return e.load(), ok
+}
+
+func (m *Map) LoadOrStore(k string, v interface{}) (r interface{}, loaded bool) {
+	mv, _ := m.v.Load().(map[string]*entry)
+	e, ok := mv[k]
+	if ok {
+		return e.load(), true
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mv, _ = m.v.Load().(map[string]*entry)
+	e, ok = mv[k]
+	if ok {
+		return e.load(), true
+	}
+	e, ok = m.dirty[k]
+	m.miss()
+	if ok {
+		return e.load(), true
+	}
+	m.dirty[k] = newEntry(v)
+	return v, false
+}
+
+// miss updates the miss counter and possibly promotes the dirty map. The
+// caller must hold m.mu.
+func (m *Map) miss() {
+	m.misses++
+	if m.misses < len(m.dirty) {
+		return
+	}
+	mv := m.dirty
+	m.v.Store(mv)
+	m.dirty = make(map[string]*entry, len(mv))
+	for k, v := range mv {
+		m.dirty[k] = v
+	}
+	m.misses = 0
+}
+```
+
+
+## Delete
+
+Starting with the obvious – and, hopefully by now, obviously wrong – approach:
+
+```
+func (m *Map) Delete(k string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mv, _ := m.v.Load().(map[string]*entry)
+	delete(mv, k)
+	delete(m.dirty, k)
+}
+```
+
+We can't delete entries from `mv` here, because other goroutines might be reading from it. Race condition. We *can* atomically store nil into the `entry`, though; right now, all our other uses have non-nil values there. So, we just need to teach our methods that a nil means "deleted," and roughly borrow the implementation of `Store` for `Delete` to keep our fast path:
+
+```
+func (m *Map) Delete(k string) {
+	mv, _ := m.v.Load().(map[string]*entry)
+	e := mv[k]
+	if e != nil {
+		e.delete()
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Reload e in case another goroutine set it while we were locking.
+	mv, _ = m.v.Load().(map[string]*entry)
+	e = mv[k]
+	if e != nil {
+		e.delete()
+		return
+	}
+	delete(m.dirty, k)
+	m.miss()
+}
+
+func (m *Map) miss() {
+	m.misses++
+	if m.misses < len(m.dirty) {
+		return
+	}
+	mv := m.dirty
+	m.v.Store(mv)
+	m.dirty = make(map[string]*entry, len(mv))
+	for k, v := range mv {
+		// Check that the value isn't deleted.
+		if atomic.LoadPointer(&v.p) != nil {
+			m.dirty[k] = v
+		}
+	}
+	m.misses = 0
+}
+
+func (e *entry) load() (interface{}, bool) {
+	// Now returning a bool indicating whether the entry is valid.
+	if e == nil {
+		return nil, false
+	}
+	p := atomic.LoadPointer(&e.p)
+	if p == nil {
+		// Nil means deleted.
+		return nil, false
+	}
+	return *(*interface{})(p), true
+}
+
+func (e *entry) delete() {
+	atomic.StorePointer(&e.p, nil)
+}
+```
+
+And this works! Though, it took a lot to convince myself that this is correct. It feels like there's a concurrency bug somewhere, some well-timed concurrent scenario that will cause a delete to become un-deleted.
+
+The key is that when `miss` copies the dirty map after promotion, the entry *pointers* are copied. This means that we still observe the effect of `Delete` (or `Store`) in a concurrent situation like this:
+
+- Precondition: The map contains a value at key `"k"`.
+- Goroutine G1 is in `Delete("k")` and has just obtained the entry to delete from `m.v`, but hasn't yet called `e.delete()`.
+- Goroutine G2 is in `miss`. G2 calls `m.v.Store(m.dirty)`, then begins copying `mv` to the new `m.dirty`. The loop has just reached `mv["k"]`.
+- G1 executes `e.delete()`. Now, *G2's* `mv["k"]` is a deleted entry, because both goroutines have the same `entry` pointer through the different maps.
+- G2 copies the now-deleted entry at `mv["k"]` to the new dirty map.
+
+If we weren't copying references to the same entry, we'd have a situation where `m.v` observes the delete but the dirty map doesn't, causing the key to reappear the next time it's promoted. But since we are, the delete happens in both maps at once, regardless of when it happens. In the worst case scenario, `miss` ends up copying an entry that it doesn't need to copy, but it will go away with the next promotion.
+
+
+## Delete and Load and Delete
+
+Next up is `LoadAndDelete`. We could write it out straightforwardly, but it turns out the implementation will be almost identical to `Delete`. It wouldn't be wrong to do it, but it'll be easier to maintain (spoiler: we'll end up doing a complete rewrite in Part 2!) if we start off with this:
+
+```
+func (m *Map) Delete(k string) {
+	m.LoadAndDelete(k)
+}
+```
+
+The real insight to pull this off will be in the implementation of `entry.delete`. Currently, this is just a one-liner to store `nil` into an entry. But, there's an atomic primitive that lets us do the same thing and also report the previous value.
+
+```
+func (e *entry) delete() (old *interface{}) {
+	return (*interface{})(atomic.SwapPointer(&e.p, nil))
+}
+```
+
+Then, we just need to copy the old code for `Delete` and adjust it to return the result of `delete` and whether that result was non-nil.
+
+
+## Range, the Last Method
+
+With our data structure as it is now, `Range` leaves us in a bit of an awkward spot.
+
+Since `Range` is a type of read, we could just iterate over our atomic map. The problem with that is that it could leave out new entries created in the dirty map. It's possible that we miss up to half the keys stored in the map. If we store a new key and then range, we won't see that store, and we've lost consistency.
+
+Alternatively, we could range over the dirty map instead. Every change to the map is reflected there. But, we need to hold `m.mu` any time we use `m.dirty`. Not only does this mean that we have to block for every range, and hence we lose performance – much more importantly, it means that *any other use of the map from within the iterator function could deadlock*. To make ranging safe, we'd have to make a copy of the dirty map and then iterate over that instead!
+
+Now that I mention it, that's actually not so bad of an idea. We already make copies of the dirty map. Or, more accurately, we swap the dirty map in to `m.v` and then copy that.
+
+```
+func (m *Map) Range(f func(key string, value interface{}) bool) {
+	m.mu.Lock()
+	// Force miss to promote.
+	m.misses = len(m.dirty) - 1
+	m.miss()
+	mv, _ := m.v.Load().(map[string]*entry)
+	m.mu.Unlock()
+
+	for k, v := range mv {
+		if r, ok := v.load(); ok {
+			if !f(k, r) {
+				return
+			}
+		}
+	}
+}
+```
+
+We'll copy the entire map every time we range, which isn't ideal. But, technically speaking, since ranging is O(n), this isn't asymptotically any more expensive than never copying. It's safe and semantically correct. Right now, it's the best we can do.
+
+
+## This Is Sucks
+
+Our synchronized map type is complete. We have every method, and it's concurrent, safe, and semantically correct.
+
+It isn't very good, though. `Range` blocks and copies the whole map on every call. `Load`, `Store`, `Delete`, and all their friends block when we try to use a key that isn't commonly used, regardless of whether it could exist. There are lots of pointers, meaning more work for the garbage collector just for existing.
+
+`sync.Map` doesn't have these problems. (Well, [except the pointers one](https://golang.org/issue/21031).) There is plenty of room for improvement.
+
+Still, aside from these few optimizations, this code accomplishes the same use cases as the standard library's, in the same ways. So, retrospectively, we can analyze *why* it works for those cases.
+
+
+## Post-Wrotem Analysis
+
+From the documentation on `sync.Map`:
+
+>	The Map type is optimized for two common use cases: (1) when the entry for a given key is only ever written once but read many times, as in caches that only grow, or (2) when multiple goroutines read, write, and overwrite entries for disjoint sets of keys. In these two cases, use of a Map may significantly reduce lock contention compared to a Go map paired with a separate Mutex or RWMutex.
+
+Case (1) is easy to analyze. If we write a key once and then read from it many times, it quickly promotes out of the dirty map. Once that happens, every read finds it immediately, without acquiring a lock. Beyond the map read, the only cost is two extra dereferences – substantially less than blocking for a mutex, and likely less than the poor cache behavior of `RWMutex.RLock`.
+
+We also know some more things about when case (1) is applicable. Even when one key is both changed and read often, `sync.Map` will probably be faster than using either type of mutex. In that case, all we're doing is atomically swapping pointers. The CPU cache won't be happy about that `entry`, but it wouldn't be happy about a mutex, either. (It's still a good idea to avoid this pattern.)
+
+But, CPU caches won't have any issue with changing entries when different threads are working with different entries. This isn't *quite* the same as different goroutines, but it's often close enough, especially when using the worker pool pattern common in high performance Go. So, we've also covered case (2).
+
+We also know when `sync.Map` will perform especially poorly. If the set of keys is undetermined and arbitrary, such that we end up creating new keys often, then `Load`, `Store`, or any other operation will frequently trigger dirty map promotions. Technically, the cost is amortized – it takes a linear number of misses to trigger a linear-time copy. I think it's pretty clear that triggering behavior like that is a bad idea, though.
+
+
+## Next Up: Sync Map, Re-reconstructed
+
+The goal of this article was to understand when to choose `sync.Map` over other methods of synchronizing maps. That's done. But as I mentioned, the implementation we've arrived at has some pain points not in the standard library version.
+
+The ways `sync.Map` preserves ideal behavior in cases like "a queried key cannot exist" or "there are no new keys to promote before ranging" are the really clever, insightful tricks that make high-performance computing different from everyday programming. So, rather than adding more to this already long article, I'll take the opportunity to transition from *understanding* a concurrent algorithm to *optimizing* one.
+
+You can find the code for this article at [https://github.com/zephyrtronium/syncmap/tree/v0.1.0](https://github.com/zephyrtronium/syncmap/tree/v0.1.0). The history prior to it contains commits for each major step during implementation, if you'd like to read through it all again. You can also compare to the [Go 1.16 standard library version](https://github.com/golang/go/blob/release-branch.go1.16/src/sync).
+
+Next time, we'll make this *zoom*.
