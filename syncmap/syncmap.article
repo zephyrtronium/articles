@@ -74,9 +74,14 @@ There are lots of reasons we can't do this with what we have so far. If `Store` 
 
 Time for a rewrite!
 
-Addressing the first race condition, where `Store` creates the map, is simple with `atomic.Value`. This effectively gives us a read/write variable that is "magically" race-free. We'll change the Map type definition to replace `map[string]interface{}` with it, and then update `Store` to use it:
+`atomic.Value` is a simple way to fix races with `Store` creating the map. Think of it as a wrapper around a variable that allows it to be loaded and stored concurrently, without a mutex. So, instead of having `m.v` be a `map[string]interface{}`, we can have it be an atomic value holding that map.
 
 ```
+type Map struct {
+	v  atomic.Value // map[string]interface{}
+	mu sync.Mutex
+}
+
 func (m *Map) Store(k string, v interface{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
