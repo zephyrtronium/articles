@@ -1,0 +1,122 @@
+# GitHub Copilot and License Restrictions
+Miscellany
+3 Jul 2021
+Tags: licensing, machine learning
+Summary: Implications of GitHub Copilot
+
+Branden J Brown
+https://github.com/zephyrtronium/
+
+
+## Copilot
+
+The other day, GitHub released the technical preview of Copilot, an "AI pair programmer" that was trained on publicly available code repositories, including those hosted on their platform.
+The FAQ section on "protecting originality" claims that Copilot regurgitates verbatim copies of training inputs about 0.1% of the time, but since its release, there have been [dozens](https://mobile.twitter.com/kylpeacock/status/1410749018183933952) of [examples](https://mobile.twitter.com/mitsuhiko/status/1410886329924194309) of it [doing exactly that](https://cdn.discordapp.com/attachments/287739410286379019/860549453843791892/unknown.png).
+Lots of people, including myself, are wondering how this can be legal: things like GNU GPL restrictions, and even attribution requirements in MIT or BSD licenses, seem clearly violated.
+
+There are many takes.
+
+One common opinion seems to be that Copilot isn't really creating derivative works per se, it's just taking input sequences and producing output ones using some specific mathematical transformations.
+Along these lines, the Copilot FAQ says, "Training machine learning models on publicly available data is considered fair use across the machine learning community."
+Or, something like, the model just needs more training to stop producing verbatim copies of copyrighted code.
+
+On the other side, I've seen a few people claim that Copilot seems to be a technique for corporations to circumvent copyleft restrictions.
+Related: did GitHub train the model on their own enterprise code? Considering the answer is obviously no, why do individuals not get the privilege of opting out?
+
+In this discussion, I see two distinct questions that are, to my knowledge, unanswered.
+
+
+## Derivative works
+
+I'll get to that. First, some definitions.
+
+The unanswered questions center around what exactly qualifies as a derivative work under copyright law. Being not a lawyer, I will cite [copyleft.org's GPL guide](https://copyleft.org/guide/comprehensive-gpl-guidech5.html), which in turn quotes the US's Copyright Act:
+
+>	A “derivative work” is a work based upon one or more preexisting works, such as a translation, musical arrangement, dramatization, fictionalization, motion picture version, sound recording, art reproduction, abridgment, condensation, or any other form in which a work may be recast, transformed, or adapted. A work consisting of editorial revisions, annotations, elaborations, or other modifications which, as a whole, represent an original work of authorship, is a “derivative work.”
+
+
+## Are Copilot outputs derivative works?
+
+I don't think anyone wants to argue that verbatim copies of code produced by Copilot are not derivative works. However, that isn't the only consideration. Copying code and changing the variable names is also a derivative work. So is translating code to a different programming language while maintaining functional equivalence.
+
+In this respect, if a human were to create some of the outputs that Copilot does, there would be no question that they are derivative works. But Copilot is not a human; it is an algorithm. So, is it fair and accurate to call them derivative works? Are they even *works*? If so, whose – GitHub's? yours?
+
+Ownership is a question that is very tricky to answer equitably.
+
+If Copilot outputs are the works of the creators of Copilot, that would imply GitHub owns, and is responsible for, the code it produces.
+Retaining ownership makes Copilot not exactly a valuable product to most users, and it seems to violate GitHub's intent as the product is published.
+Being responsible for the outputs means GitHub could be sued for works it has no control over.
+Perhaps GitHub could shift the burden through the license associated with the product, but that would create risk for potential buyers.
+
+If you as a user of Copilot are the owner of its outputs, whether by legal decision or by license terms, then you might derive from others' works without being aware of it. The risk is immense. It may be the case that the most reasonable option is to avoid this kind of technology entirely.
+
+
+## Is the Copilot model a derivative work?
+
+Machine learning algorithms of any type are concerned with quantifying features of inputs, then performing some calculations on that quantification to generate a useful output.
+In the case of neural networks, this generally means performing a string of matrix products for predictions, then iterated derivatives using predictions to make corrections.
+The training corpus usually doesn't appear anywhere within the model in any readable form, but it is used to calculate parameters.
+
+Being an algorithm, Copilot is itself clearly a work. It contains presumably millions of numbers that were gradually calculated over weeks to months using "publicly available" (but restrictively licensed) code.
+
+Is the math applied to those inputs a "transformation" in the copyright sense? I think the intuitive answer, as someone with decent understanding of the principle of operation, is yes. According to the Copilot FAQ, the conventional answer is no. As I understand it, currently this question would be answered for legal purposes by a judge, whose understanding and considerations may differ.
+
+But unlike the previous question, I think there is a clearly inequitable answer here.
+
+Over the past decade or so, many thousands of businesses have developed livelihoods centered on deep learning. These businesses depend on access to the largest possible corpora in their respective domains. If neural networks were considered derivative works of their training inputs, then these businesses would either purchase rights to every training datum or give up use of their models. The former doesn't seem viable. As a very small example, imagine paying every person whose penmanship is captured in MNIST!
+
+Privacy advocates might call that a win. I personally would love to see the electricity use associated with deep learning drop.
+
+Now let's try an exercise. Read these lines aloud:
+
+- "Ok Google, what data do you collect from me?"
+- "Hey Siri, what data do you collect from me?"
+- "Alexa, what data do you collect from me?"
+
+FAANG-size companies collect unbelievable amounts of data. Making trained models copyrighted at this point would have no measurable effect on their business. The only ones who are hurt are the startups and mid-size competitors doing genuinely clever things with reasonable amounts of data in domains due for innovation.
+
+So, I think the answer must be no: neural networks themselves should not be considered derivative works of their training data.
+
+
+## Options
+
+Lots of people have offered solutions to the licensing problem.
+
+A common suggestion is that Copilot should learn separately from differently licensed repositories. This might be reasonable, but it would be challenging in the presence of dozens of licenses with varying requirements, compatibilities, and modifications. There's no guarantee enough data would remain after divvying up to produce a usable, effective model for any category.
+
+Along these lines, GitHub has mentioned they're pursuing measures to ensure results are attributable. If such measures are perfect, then this is a valid solution. In theory and in practice, machine learning models are not interested in perfection.
+
+However, there is one approach that I think would alleviate the licensing issue for both GitHub and their users: *licensing*. If we add clauses to popular open source licenses explicitly opting out of machine learning analysis, then it becomes easy for GitHub, OpenAI, &c. to identify repositories that cannot be used in corpora, and people's open source code remains protected as they licensed it.
+
+It isn't a particularly clean solution. Changes to licenses now don't apply retroactively to the already trained Copilot model. It creates another aspect for programmers to learn about when choosing a license. The language of such a clause would have to be precise, so that machine learning is blocked without restricting useful static analysis tools. Companies with great lawyers will inevitably find loopholes which must be closed in response.
+
+But it is a solution that could allow these technologies to exist in a much safer space. Proprietors, creators, and users benefit.
+
+
+## Forward
+
+Regardless of which answers are chosen, I think there is value in specifically legislating answers to the derivative works questions. If you're able, call your local legislators (using a telephone; at least in the US Congress, letters are much less impactful). If you feel strongly about the issue one way or another, suggest how it should be answered. If not, at least bring it up as an important topic.
+
+If you produce any kind of artistic work, especially code, and you license that work through open frameworks, ask for help protecting your work from circumvention through machine learning. Consider charitable donations to these foundations while you're at it.
+
+- If you like GNU GPL (or LGPL, or AGPL), ask the [Free Software Foundation](http://www.gnu.org/contact/) for help modifying the version you use.
+- If you like APL or MPL, ask the [Apache Software Foundation](https://www.apache.org/legal/) or [Mozilla](https://www.mozilla.org/en-US/MPL/) for similar help.
+- If you use a Creative Commons license, consider a non-commercial (NC) variant, or [contact Creative Commons](https://creativecommons.org/about/contact/) if you specifically want some "no-aggregate-analysis" clause available.
+- MIT and BSD licenses are published by universities rather than legal foundations. I didn't look hard, but quick Google searches didn't show useful contact information.
+
+Of course, I don't think it's reasonable to expect these foundations to provide individual legal advice to everyone who asks. The goal is to bring enough attention to this approach that the most popular public licenses consider it for everyone's benefit. Maybe we can get FAQ entries. FSF, at least, seems like it should have [some investment](https://twitter.com/eevee/status/1410312829513572352) in a concrete legal response for the GNU GPL.
+
+
+## Read the TOS
+
+Now, all that said, this kind of licensing might not be a solution at all for those who host their code on GitHub. In the GitHub Terms of Service, [section D, subsection 4](https://docs.github.com/en/github/site-policy/github-terms-of-service#4-license-grant-to-us) concerning the license you grant to GitHub includes the following passage (emphasis added):
+
+>	You grant us and our legal successors the right to store, archive, parse, and display Your Content, and make incidental copies, as necessary to provide the Service, **including improving the Service** over time. This license includes the right to do things like copy it to our database and make backups; show it to you and other users; parse it into a search index **or otherwise analyze it on our servers**; share it with other users; and perform it, in case Your Content is something like music or video.
+
+Complete with the relevant definition:
+
+>	The “Service” refers to the applications, software, products, and services provided by GitHub, including any Beta Previews.
+
+This seems to suggest that uploading your code to GitHub and storing it associated with a GitHub account grants them the license to use that code to develop Copilot. The clause seems innocuous in any other context. With Copilot's existence, it is the gateway to a deluge of privacy and licensing problems.
+
+Maybe the most efficient solution of all is to move away from GitHub.
