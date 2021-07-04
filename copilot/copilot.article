@@ -37,9 +37,9 @@ The unanswered questions center around what exactly qualifies as a derivative wo
 
 ## Are Copilot outputs derivative works?
 
-I don't think anyone wants to argue that verbatim copies of code produced by Copilot are not derivative works. However, that isn't the only consideration. Copying code and changing the variable names is also a derivative work. So is translating code to a different programming language while maintaining functional equivalence.
+I don't think anyone wants to argue that verbatim copies of code produced by Copilot are not derivative works. However, that isn't the only consideration. Copying code and changing the variable names is also likely a derivative work. Transliterating a whole program to a different programming language often is as well.
 
-In this respect, if a human were to create some of the outputs that Copilot does, there would be no question that they are derivative works. But Copilot is not a human; it is an algorithm. So, is it fair and accurate to call them derivative works? Are they even *works*? If so, whose – GitHub's? yours?
+In this respect, if a human were to create some of the outputs that Copilot does, there would be little question that they are derivative works. But Copilot is not a human; it is an algorithm. So, is it fair and accurate to call them derivative works? Are they even *works*? If so, whose – GitHub's? yours?
 
 Ownership is a question that is very tricky to answer equitably.
 
