@@ -10,12 +10,12 @@ I'm Branden. Currently a student in computer science at the University of Pittsb
 	<meta property="og:title" content="Homepage | zephyrtronium" />
 	<meta property="og:description" content="{{ template "desc" }}" />
 </head>
-<body class="not-giscus">
+<body>
 	<header>
 		<h1>zephyrtronium</h1>
 		<p>{{ template "desc" }}</p>
 	</header>
-	<main class="not-giscus">{{ range . }}
+	<main>{{ range . }}
 		<h3>{{ .Section }}</h3>
 		<ul>{{ range .Articles }}
 			<li><a href="{{ .URL }}">{{ .Title }}</a> ({{ .Time.Format "_2 Jan 2006" }}) &mdash; {{ .Summary }}</li>{{ end }}
