@@ -9,7 +9,8 @@
 	{
 		"section": "Miscellany",
 		"articles": [
-			"copilot"
+			"copilot",
+			"generics-enums"
 		]
 	}
 ]

@@ -1,0 +1,134 @@
+# Constraints Aren't Enums
+Miscellany
+5 Dec 2021
+Tags: go, generics, enums
+Summary: Go 1.18 still does not add sum types.
+
+Branden J Brown
+https://github.com/zephyrtronium/
+
+
+## Generics with Type Parameters
+
+I have some old logs of the original `#go-nuts` IRC channel lying around from August 2013. The topic includes a link to "isgo1point2outyet.com". A variety of familiar names – some still active in the Go community today – are recorded therein, asking and answering dozens of questions about Go. And even then, people were asking for generics.
+
+That's only the oldest logs I still have. I've been using Go since sometime in 2011, earlier than the Go 1.0 release, when we wrote Makefiles to invoke 6g and 6l to build our programs. I can attest that generics were a hot topic in the community then, too.
+
+And now, Go 1.18 will add generics, nearly ten years after the language's initial release.
+
+The design of generics, including the syntax, semantics, and implementation, is the product of a decade of discourse by hundreds of very smart people. I don't think it's perfect, but it's certainly better than the generics of C++ or Java. Orange Website has collectively sighed in relief, presumably.
+
+Generics will use "type parameters" to define generic code. Type parameters allow a programmer to specify uniform operations on many types in a type set, much like formal parameters (the input and output arguments to a function) allow us to specify uniform operations on many values in a type. One of the main differences is that type parameters are entirely a compile-time concept in Go, serving to ensure that code only uses operations available for all types in the specified type set.
+
+## Type Constraints
+
+Go has had a way to define "a set of types" since the beginning: interface types. One of the really neat insights in the generics design is to use interfaces again to specify the type sets – or constraints, or bounds in Java terminology – for type parameters. But we like to write things like `c := a + b` in generic code, and interfaces pre-1.18 don't let us specify "the set of types for which `a + b` is defined" since Go doesn't have anything like operator methods.
+
+For the purpose of writing type constraints like this, 1.18 will add "type elements" that we can put in interfaces in addition to method signatures. These allow us to explicitly write down the types in a type set. For example, the interface for `a + b` looks like this:
+
+```
+type Plus interface {
+	~int8 | ~int16 | ~int32 | ~int64 | ~int |
+	~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uint | ~uintptr |
+	~float32 | ~float64 |
+	~string
+}
+```
+
+The `~T` means "any type which has `T` as its underlying type." I like to read `~T` like "approximately T." We could write the same interface without them, but then `type MyInt int` wouldn't be in the type set of the constraint. Then, the type element `U | V` builds on that to say "the type set includes the union of `U` and `V`." So, this constraint could be read "any type whose underlying type is `int8`, or any type whose underlying type is `int16`, or ..., or any type whose underlying type is `string`."
+
+Every type in this type set has the `+` operator, which means we can use it in generic code that uses `Plus` as its constraint. We can't use other arithmetic operators, though, because the type set includes `~string`; `c := a - b` doesn't make sense if `a := "Hello"` and `b := "World"`.
+
+
+## Enums
+
+But there's another thing here that a number of people have caught on to. With type elements, we can write an interface that accepts only a specific, restricted set of types. If we can use that interface type dynamically, then we have what type theorists call "sum types," or what many programmers (especially from Rust) call "enums" or "enum classes."
+
+This is another thing people have been requesting for years in Go. Sum types are very convenient for some tasks, like representing JSON objects that can have several layouts or describing the possible elements in an abstract syntax tree.
+
+The important thing about sum types is that you can only use the specific types in the definition. Go's `iota` constants can define a list of named integers, but their *type* isn't restricted, so you can pass in any integer value you want to functions which nominally accept those constants. With proper sum type enumerations, other values don't even exist. So, sum types allow much safer programming in the situations where they're useful.
+
+Rust's enums are a very powerful example of sum types, of the kind known as "tagged unions." They're pervasive in the language to the point that they're even the primary mechanism for error handling: `std::Result<T, E>` is a generic enum which represents either a valid result variant of type `T` (named `Ok`) or an error variant of type `E` (named `Err`).
+
+When a caller gets back a Result, they can check the dynamic type to tell whether the specific instance is `Ok` or `Err`, then decide what to do based on the actual variant. This is how Rust prevents you from ignoring errors: results that are possibly errors are of an entirely different type, and you don't have access to the `Ok` result until you explicitly check that it exists.
+
+This is a very useful property. So, now that we (soon will) have generics in Go, why not try to replicate it?
+
+
+## Result in Go
+
+Let's try the straightforward approach and use the new type elements feature.
+
+```
+type Result[T any] interface {
+	T | error
+}
+```
+
+Easy enough: this interface can be either `T` for some chosen type, or it can be `error`.
+
+But this doesn't work. If we try to compile it with the most recent development version of the compiler (as of 5 Dec 2021), we get these error messages:
+
+```
+ ./prog.go:8:2: cannot embed a type parameter
+ ./prog.go:8:6: cannot use error in union (interface contains methods)
+```
+
+Unfortunate, but we can still work around these errors:
+
+```
+type Result[T any] interface {
+	struct{ Ok T } | struct{ Err error }
+}
+```
+
+Now this compiles. But... it still seems like it doesn't work. We get an "interface contains type constraints" compilation error when we write this function:
+
+```
+func Foo() Result[int] {
+	return struct{ Ok int }{1}
+}
+```
+
+
+## Type Constraints Are Not Sum Types
+
+It turns out I've already mentioned why this doesn't work: type parameters are a compile-time concept. To use a type like the `Result[T any]` interface we've defined, the *caller* would have to specify, statically, whether the operation succeeds or fails!
+
+You can't construct values of a type given by that kind of interface. As soon as you add a type element to an interface, that interface is no longer even a type. It is only a type constraint; the only place it can be used is to define the type sets of type parameters.
+
+So, despite generics adding a way to name "a set of types" with these type elements, we aren't getting sum types. The only ways to write anything resembling sum types in Go remains to define an interface with an unexported method, creating a new type with that method for each variant, or to write a product type (struct) to simulate it.
+
+Given that, a `Result[T]` type in Go would have to look something like this:
+
+```
+type Result[T any] interface {
+	isResult() T
+}
+
+type Ok[T any] struct{ Value T }
+type Err[T any] struct{ Err error }
+
+func (Ok[T]) isResult() T  { panic("don't call this") }
+func (Err[T]) isResult() T { panic("don't call this") }
+```
+
+And using it would look like this:
+
+```
+func Foo() Result[int] {
+	return Ok[int]{1}
+}
+
+func main() {
+	r := Foo()
+	switch r := r.(type) {
+	case Ok[int]:
+		fmt.Println("Ok:", r.Value)
+	case Err[int]:
+		fmt.Println("Err:", r.Err)
+	}
+}
+```
+
+Not particularly elegant.
