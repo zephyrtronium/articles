@@ -67,7 +67,7 @@ It has other parameter sets that make it uniform all the way up to 6752 consecut
 
 Technically, MT is k-distributed to 32-bit accuracy rather than equidistributed, i.e. perfectly uniform.
 Among some other slight differences, that means the all-zero group of each size appears once less often than the others in the overall sequence.
-But MT19937 has a period of 2^19937-1, and the total count of groups is itself a number with over six thousand digits, so you'll never notice the difference.
+But MT19937 has a period of 2<sup>19937</sup>-1, and the total count of groups is itself a number with over six thousand digits, so you'll never notice the difference.
 
 Thing is, in some contexts like GPU where you want potentially several thousand threads to use random numbers, 19937 bits isn't trivial.
 
@@ -93,7 +93,7 @@ ChaCha20 in particular is used in emerging web protocols like WireGuard and SPDY
 
 ChaCha20 is unbroken; there is no known way to reduce the average number of computations required to figure out its internal state versus just guessing every possibility.
 (This is also a reason ChaCha20 is kind of more state of the art than AES, which is very slightly broken in theory, although still taking some exponent of the age of the universe to actually do it.)
-That means it takes on the order of 2^256 attempts – a number with 77 digits – to figure out its internal state.
+That means it takes on the order of 2<sup>256</sup> attempts – a number with 77 digits – to figure out its internal state.
 
 The problem with ChaCha20 as a PRNG is that you don't need 256 bits of security to see whether Shadowheart passes a DC 14 diplomacy check.
 It's just heavier than what you need when you aren't actually doing cryptography.
@@ -106,7 +106,7 @@ Overall, ChaCha8 is very fast.
 Both ChaCha20 and ChaCha8 are still relatively large, though, weighing in at 304 bytes.
 More manageable than MT, but not trivial either.
 And compared to MT, its smaller state directly implies lower uniformity as a consequence of information entropy.
-E.g., if you observe that the same bit is 0 in 256 consecutive outputs from ChaCha8 (which, in fairness, happens with probability 1/2^250), you know it will be 1 in the next output.
+E.g., if you observe that the same bit is 0 in 256 consecutive outputs from ChaCha8 (which, in fairness, happens with probability 1/2<sup>250</sup>), you know it will be 1 in the next output.
 As covered before, MT can produce up to 623 consecutive 0s.
 
 
@@ -145,7 +145,7 @@ Here's a heavily abbreviated list of PRNGs advertising speed with associated pub
 - LFG(273, 607), which is the PRNG that today's math/rand gives you in a NewSource(), but which has a large state and probably the worst statistical quality on this list.
 
 An interesting note is that every generator after wyrand on this list is fundamentally based on the same idea in mathematics: linear recurrences in finite fields.
-Basically, they're taking some carefully designed matrix `A`, a carefully chosen function `T`, and starting point `x` to compute the nth term of the PRNG sequence as `T(A^n x)`.
+Basically, they're taking some carefully designed matrix `A`, a carefully chosen function `T`, and starting point `x` to compute the nth term of the PRNG sequence as `T(Aⁿ x)`.
 PCG isn't far from the same idea.
 The fact that all of these generators are so similar is exactly why we know their uniformity properties, and why I describe wyrand – the only one here *not* based on this technique – as "not well understood."
 
@@ -164,7 +164,7 @@ But that simplicity and ease of implementation makes them more predictable, i.e.
 
 Another consequence of being based on similar math and having small states is that most of these generators share an operation called "jump."
 Consider that the fundamental operation all of them are doing is repeatedly multiplying a matrix `A`.
-Advancing by 2 steps abstractly-multiplies the starting point by `A^2`. Advancing by 2^64 steps multiplies the starting point by `A^2^64`.
+Advancing by 2 steps abstractly-multiplies the starting point by `A`<sup>2</sup>. Advancing by 2<sup>64</sup> steps multiplies the starting point by `A`<sup>2<sup>64</sup></sup>.
 
 Since these longer jumps just exponentiate the matrix, you can use an algorithm like exponentiation by squaring to advance arbitrarily far in time proportional to the size of the state rather than the length of the jump.
 This helps with the "thousands of threads want independent sequences" situation.
