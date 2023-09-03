@@ -287,7 +287,8 @@ However, it's also substantially slower, and MT is already possibly the slowest 
 Another point on the curve is Maximally Equidistributed F2-Linear Generator with Mersenne Prime Period, or MELG-64.
 MELG is a bit faster than MT (although slower than SFMT, the SIMD-oriented variant).
 It's also higher quality, and it meets a much stronger equidistribution property, being maximally equidistributed rather than k-distributed to 32-bit accuracy.
-Also, it has less tendency to group states with many 0 bits, meaning it appears more random beyond its 623 number equidistribution limit.
+Also, it has less tendency to group states with many 0 bits, meaning it appears more random beyond its 311 number equidistribution limit.
+(MELG-64 is 64-bit first, as the name implies, but it uses the same 19937 bit state size. It's equidistributed over half the length of consecutive numbers of MT, but the numbers themselves are twice as wide.)
 
 Basically, MELG seems to be kind of just better than MT.
 But almost no one uses it.
@@ -297,7 +298,8 @@ There's a bit of a problem with supplanting MT.
 You'd choose it as the PRNG in contexts where uniformity is important.
 But really, when uniformity is important, you probably don't actually care about *randomness*.
 
-Quasirandom number generators like Sobol sequences give up trying to "look random" and instead specifically optimize for covering their output space.
+Quasirandom number generators like Sobol sequences give up trying to "look random" and instead specifically optimize for incrementally covering their output space.
+They're "as-if random," rather than "fake random."
 Those mathematical simulations where MT would shine as a PRNG are almost unconditionally better served by a QRNG.
 
 Rather than being a generator for mathematics and science, MT is mostly popular as a general-purpose algorithm, because it appeared at a time when general-purpose PRNGs were otherwise often unacceptably poor quality for anything more than the most casual randomness.
