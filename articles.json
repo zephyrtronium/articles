@@ -10,7 +10,8 @@
 		"section": "Miscellany",
 		"articles": [
 			"copilot",
-			"generics-enums"
+			"generics-enums",
+			"randomness"
 		]
 	}
 ]

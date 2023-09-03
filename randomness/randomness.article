@@ -1,0 +1,336 @@
+# StAtE OF tHe arT In RAnDomneSS
+Miscellany
+2 Sep 2023
+Tags: math, prng, gophercon
+Summary: A tour of pseudorandom number generators. Extended notes for my GopherCon 2023 lightning talk.
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## Go's First v2
+
+It looks likely that we'll get our first v2 package in the standard library in Go 1.22.
+A v2 is an exciting proposal that will present a variety of technical challenges, and that is why it is purposely being done for a boring package: [math/rand](https://go.dev/issue/61716).
+But I have been studying PRNGs as a hobby for about fifteen years now, so I am very interested in these changes.
+
+For a variety of good reasons, math/rand/v2 is very close to its original counterpart.
+It's closer to a refinement than a reimagining or a rewrite.
+
+However, one important change is that math/rand/v2 will ship with multiple Source implementations.
+That means if you need independent, reproducible random numbers, there are reasons to think about which to use.
+This article is a tour of the factors to consider, along with a survey of today's best algorithms for each.
+
+Note that while this article is written in the context of Go's standard library, most of it isn't specific to Go.
+All of these algorithms can be implemented in any programming environment, which means these choices are available everywhere.
+There will be no Go code, and all I assume of the reader is some post-secondary knowledge of mathematics and bitwise operations.
+
+
+## Pseudorandomness
+
+If you ask a question about "random numbers" in any public forum of programmers, chances are high that someone will try to convince you that there is no such thing as randomness in computers: we use "pseudorandomness" instead.
+(This is, of course, an incorrect claim, but it is only incorrect to those who are willing to go very far out of their way to find otherwise.)
+
+Pseudorandom number generators, or PRNGs, are what their name implies: sources of "fake random" numbers.
+More precisely, they are generators of *sequences* of numbers that, when processed through statistical tests, produce metrics close to indistinguishable from truly random sequences.
+
+They are "fake random" in the sense that there's an easy way (the algorithm) to take a relatively small amount of information (the state) and produce the whole sequence.
+In other words, they appear to have far more entropy than they have, much like the digits of pi take more space to list than to compute.
+
+But obviously, not all sequences are pseudorandom.
+`0, 4, 3, 4, 7, 8, 2, 6, 0, 8, 6, 9, 5, 6, 5, 2, 1, 7, 3, 9, 1, 3, …`
+is clearly harder to distinguish from random than
+`8, 8, 8, 8, 8, 8, 8, …`.
+Whether a given sequence qualifies as random (or pseudorandom, as it were) really depends on why you want random numbers.
+
+
+## Uniformity
+
+If you're running a numerical simulation based on a mathematical technique that assumes randomness, then you probably want a highly uniform PRNG.
+Roughly speaking, a PRNG sequence is uniform when all possible outputs appear an equal number of times across its length.
+(I am dramatically oversimplifying because I don't want to explain most of the concepts in analysis to have a precise definition make any sense.)
+
+There are other measures of uniformity, as well.
+For example, we can measure the probability of each respective bit changing in each successive output; in the context of PRNGs, uniformity implies this should be 50% for each bit.
+Or we can take a histogram of the number of 1 bits in successive outputs; this should follow a binomial distribution.
+When a PRNG passes (in the statistical, p-value sense) many of these kinds of tests, we call it high quality.
+
+The state of the art PRNG in uniformity is the Mersenne Twister (MT), or more precisely its variants optimized for generation in specific contexts like SIMD.
+
+For being state of the art, MT is actually rather old: the algorithm was first published in 1997.
+Other PRNGs have found slightly better quality since then, but at other costs.
+MT revolutionized PRNG techniques in computing, and today if you ask for random numbers in Python, R, MATLAB, Maple, Ruby, PHP, Microsoft Excel, and a variety of other programming environments, you're probably using MT.
+
+In its most popular configuration, called MT19937 because it uses 19937 bits of state, not only is it uniform across individual outputs, but also consecutive pairs, groups of three, and so on all the way up to 623.
+It has other parameter sets that make it uniform all the way up to 6752 consecutive outputs.
+
+Technically, MT is k-distributed to 32-bit accuracy rather than equidistributed, i.e. perfectly uniform.
+Among some other slight differences, that means the all-zero group of each size appears once less often than the others in the overall sequence.
+But MT19937 has a period of 2^19937-1, and the total count of groups is itself a number with over six thousand digits, so you'll never notice the difference.
+
+Thing is, in some contexts like GPU where you want potentially several thousand threads to use random numbers, 19937 bits isn't trivial.
+
+Furthermore, once you exceed that uniformity number, you lose it entirely.
+Most groups of 624 numbers never appear in the MT19937 sequence at all.
+
+Once you see (or reconstruct) 624 full outputs, you can even run a straightforward algorithm and figure out the internal state.
+From there, not only can you predict every number that MT will generate, you can also reverse the sequence and see every number that it has generated.
+
+If you're running a numerical simulation, being able to reverse MT isn't really a concern. Who's going to bother?
+This kind of thing is more of a problem when you're, say, generating cryptographic nonces for TLS communication.
+You simply cannot use MT for that kind of application.
+
+
+## Unpredictability
+
+For applications where you must not share PRNG state with anyone else, unpredictability – also called security, although that term is a bit more overloaded – is the chief measure of randomness.
+PRNGs designed around this property (and which aren't mathematically compromised) are called cryptographically secure pseudorandom number generators, or CSPRNGs.
+
+The state of the art CSPRNG is ChaCha20.
+Or, any secure block cipher in CTR mode; AES also qualifies.
+ChaCha20 in particular is used in emerging web protocols like WireGuard and SPDY, and it's the underlying technique in modern Linux's `/dev/urandom` and most BSDs' `/dev/random`.
+
+ChaCha20 is unbroken; there is no known way to reduce the average number of computations required to figure out its internal state versus just guessing every possibility.
+(This is also a reason ChaCha20 is kind of more state of the art than AES, which is very slightly broken in theory, although still taking some exponent of the age of the universe to actually do it.)
+That means it takes on the order of 2^256 attempts – a number with 77 digits – to figure out its internal state.
+
+The problem with ChaCha20 as a PRNG is that you don't need 256 bits of security to see whether Shadowheart passes a DC 14 diplomacy check.
+It's just heavier than what you need when you aren't actually doing cryptography.
+
+Partly for that reason, math/rand/v2 includes ChaCha8 rather than ChaCha20.
+It's the same algorithm, just with fewer rounds of work.
+It's still considered secure, but it's less popular among cryptographers, perhaps because the closely related Salsa20/8 is partially broken.
+Overall, ChaCha8 is very fast.
+
+Both ChaCha20 and ChaCha8 are still relatively large, though, weighing in at 304 bytes.
+More manageable than MT, but not trivial either.
+And compared to MT, its smaller state directly implies lower uniformity as a consequence of information entropy.
+E.g., if you observe that the same bit is 0 in 256 consecutive outputs from ChaCha8 (which, in fairness, happens with probability 1/2^250), you know it will be 1 in the next output.
+As covered before, MT can produce up to 623 consecutive 0s.
+
+
+## Speed
+
+When you don't especially need exceptionally high quality or cryptographic security, the default tends to be to use as few resources as possible for the PRNG: fast and small.
+
+This is always going to be a compromise.
+No sequence is faster than `return 0`, but that has what we call in the business "very poor statistical quality."
+"Increment x and return it" is a bit slower, but it's at least uniform in single outputs over the size of its state, although still not quite in pseudorandom territory.
+
+The state of the art in fast PRNGs is PCG-DXSM, the default generator in numpy and the second Source in math/rand/v2.
+
+Kind of.
+
+Being a compromise between factors, there are lots of points along the curve to choose.
+PCG-DXSM is uniform over 128 bits.
+xoshiro256\*\* is very slightly slower, but it's uniform over 256 bits.
+wyrand is very slightly faster, but it isn't based on any of the "classical" techniques, so its uniformity isn't well understood.
+Arguably, each of these three is the current state of the art, depending on exactly what you need.
+
+Those aren't all, though.
+Speed is a shiny number that's easy to point to when comparing generators, so it's... somewhat competitive in academia.
+Here's a heavily abbreviated list of PRNGs advertising speed with associated published literature:
+
+- PCG-DXSM, as covered.
+- PCG-XSL-RR, the original recommendation of the PCG family but now superseded by the DXSM variant.
+- wyrand, as covered.
+- xoshiro256\*\*, as covered.
+- xoshiro256++, a slightly faster but lower quality variant of xoshiro256\*\*.
+- xoshiro128+, a smaller variant of xoshiro256\*\* oriented toward embedded applications.
+- xorshift, an older technique that inspired the xoshiro family and more.
+- MTGP, a variant of the Mersenne Twister from before that is specifically designed for use on GPUs.
+- dSFMT, another variant of MT designed for generating float64 values using SIMD vector operations.
+- TinyMT, a variant of MT specifically designed around the idea of a small state.
+- LFG(273, 607), which is the PRNG that today's math/rand gives you in a NewSource(), but which has a large state and probably the worst statistical quality on this list.
+
+An interesting note is that every generator after wyrand on this list is fundamentally based on the same idea in mathematics: linear recurrences in finite fields.
+Basically, they're taking some carefully designed matrix `A`, a carefully chosen function `T`, and starting point `x` to compute the nth term of the PRNG sequence as `T(A^n x)`.
+PCG isn't far from the same idea.
+The fact that all of these generators are so similar is exactly why we know their uniformity properties, and why I describe wyrand – the only one here *not* based on this technique – as "not well understood."
+
+That's also why, with some exceptions, most of these generators share a few traits.
+
+They usually have small states, on the order of 128 or 256 bits.
+This is in part because less data to touch implies less time spent touching data, but also to facilitate calculations for the uniformity proofs.
+Once again, small states directly imply lower quality thanks to the bounds of information entropy.
+
+(With the exception of LFG, larger PRNGs generally take advantage of properties of a certain class of prime numbers, called Mersenne primes, to do their proofs.
+That's why they have weird state sizes like 19937 bits, and it's how Mersenne Twister got its name.)
+
+They also choose particular meanings of "times" and "plus" that come from the land of abstract algebra for their operations.
+The choices are easy to implement on computers in terms of operations that are much faster than standard multiplication.
+But that simplicity and ease of implementation makes them more predictable, i.e. not cryptographically secure; usually you can take just a few outputs and figure out their internal states.
+
+Another consequence of being based on similar math and having small states is that most of these generators share an operation called "jump."
+Consider that the fundamental operation all of them are doing is repeatedly multiplying a matrix `A`.
+Advancing by 2 steps abstractly-multiplies the starting point by `A^2`. Advancing by 2^64 steps multiplies the starting point by `A^2^64`.
+
+Since these longer jumps just exponentiate the matrix, you can use an algorithm like exponentiation by squaring to advance arbitrarily far in time proportional to the size of the state rather than the length of the jump.
+This helps with the "thousands of threads want independent sequences" situation.
+Seeding many PRNGs independently leaves you vulnerable to the birthday problem, especially because we're concerned about overlapping spans rather than exact matches.
+Copying and jumping the state for each thread instead avoids that problem.
+
+
+## Practicum: Choosing a Generator
+
+[Xirho](https://github.com/zephyrtronium/xirho) is a program I wrote in Go that starts off with random numbers, does a bit of math on top, and outputs pretty pictures.
+I wrote xirho very much in mind of the considerations I've been talking about in this article, and indeed, I think wyrand is the only notable PRNG that's new since I wrote it.
+So how did I choose xirho's PRNG?
+
+Let's start off with a description of the algorithm.
+
+1. Inputs:
+	+ Weighted, directed graph of "function nodes." Each node contains:
+		* A function F that takes an input point and produces an output point, possibly using PRNG. (More description below.)
+		* Opacity α.
+		* Weights to each node in the system, including itself.
+	+ Palette of colors.
+	+ Output image size and anti-aliasing/denoising parameters.
+	+ PRNG.
+2. Allocate a histogram (typically many gigabytes in size) to accumulate results.
+3. Launch goroutines (threads). Each performs the remaining steps.
+4. Use PRNG to generate a random 4D starting point p. (The fourth dimension selects the color from the palette.)
+5. Use PRNG to select a random node in the system.
+6. Apply F to p, creating a new point. Assign the new point back to p.
+7. If in bounds and 0 < α < 1, use PRNG to plot p on the histogram with probability α.
+8. Repeat from step 5.
+
+Surprisingly simple, considering the art it creates.
+
+Note that the core loop of the algorithm, steps 5 through 8, uses PRNG in every iteration and potentially every step.
+We're also not doing any I/O; this is a CPU-bound application.
+In other words, I'd *really like* to choose a fast generator.
+I'm not just defaulting to that option (although it usually is the default).
+
+This is also a highly parallel algorithm.
+We want a lot of goroutines, each with fully independent PRNGs.
+However, we want to save as much memory as we can for the histogram; a couple dozen gigabytes for that isn't unusual.
+So, we'd also like the PRNG to be small.
+
+Luckily, fast and small usually coincide in the PRNG world.
+The question is really whether we can get away with one.
+
+
+### Evaluating Uniformity
+
+Xirho is fundamentally a random graph walk.
+That's exactly where you want a high quality generator, to be sure you're taking every path through the graph with the right probability.
+
+E.g., consider a graph with two nodes, A and B, with equal weight connections between those nodes and each back to themselves.
+We could represent a random walk on this graph by generating a single random value per step and saying that if it's at least half the maximum possible value then we choose A, otherwise we choose B.
+Equivalently, we're using the most significant bit of each output to make the choice.
+
+Let's say we generate these random values using PCG-DXSM.
+Under ideal randomness, staying on the same node for 4 consecutive steps should happen with probability 1/16.
+However, PCG-DXSM is only equidistributed over pairs of outputs; there's *no guarantee* that we can land in the same half of the output range *more than twice in a row*.
+Compare to MT19937, where we're guaranteed that every 623-bit string (less the all-zero string) will appear with equal probability.
+
+So, yes, we do care about uniformity.
+But modern fast generators aren't totally helpless in quality, either.
+
+PCG-DXSM is uniform over 64-bit values, not 64 separate bits.
+The run lengths of each bit, i.e. the number of repeats in a given position before toggling, is a fundamental measure of statistical quality.
+If PCG didn't actually work for this example, it would be generous to call it a PRNG at all.
+In an actual experiment, it does just fine.
+Its lower uniformity might be a problem if we were working with large graphs, but it's rare for xirho to have even double digit nodes.
+
+
+### Evaluating Security
+
+This one's easy.
+Xirho is not a cryptographic application, so I prefer not to use a cryptographic primitive like a CSPRNG.
+
+A rough analogy is that we don't use synchronization primitives for code that is never concurrent.
+CSPRNGs are designed for very specific use cases, and they have costs that only make sense in those uses.
+
+That said, with a generator like ChaCha8, it's generally fine to take security as just an added benefit.
+It's a simple algorithm, and its performance on optimized platforms is almost on par with PCG-DXSM, if not better.
+
+However, it is almost twenty times the size – 304 bytes versus 16.
+Still not huge, but if we're going to include size as a decision metric, we should have a reason to choose against it.
+We don't, so smaller wins.
+
+Beyond xirho, though, whenever the answer to "do I care about security?" is "yes," your choice is immediately sealed.
+There is never a scenario where uniformity or performance beats a requirement for unpredictability.
+Even if quality might matter, CSPRNGs by nature pass every statistical test; they wouldn't be secure if they could be distinguished from random.
+
+
+### Xirho's PRNG
+
+Considering our need for speed, small size, and some degree of uniformity, and not having a requirement for security, we can make our choice.
+We want the state of the art in performance.
+That's why xirho uses xoshiro256\*\*.
+
+Not PCG-DXSM? That's the one in math/rand/v2, not to mention the previous examples.
+
+xoshiro256\*\*'s slightly worse performance but slightly higher uniformity happens to be exactly the right compromise we want to make for xirho.
+PCG-DXSM would probably do great as well; I haven't tried it.
+I probably will once math/rand/v2 is released.
+Maybe after I fix image resampling, though.
+
+
+## Those Who Didn't Make It
+
+There are *many* PRNG algorithms.
+Narrowing down the list to just a few for each category is unfair, not to mention difficult.
+There are some honorable mentions I'd like to highlight.
+
+
+### More Uniform
+
+Just like PCG, xoshiro, and wyrand lie on a curve of compromise, so does MT.
+Elsewhere on that curve is the Well-Equidistributed Long-period Linear (WELL) family.
+WELL is almost another variant of MT, but with a different choice of parameters that leads to measurably improved quality; WELL19937 passes several statistical tests that MT19937 fails.
+However, it's also substantially slower, and MT is already possibly the slowest PRNG mentioned to this point.
+
+Another point on the curve is Maximally Equidistributed F2-Linear Generator with Mersenne Prime Period, or MELG-64.
+MELG is a bit faster than MT (although slower than SFMT, the SIMD-oriented variant).
+It's also higher quality, and it meets a much stronger equidistribution property, being maximally equidistributed rather than k-distributed to 32-bit accuracy.
+Also, it has less tendency to group states with many 0 bits, meaning it appears more random beyond its 623 number equidistribution limit.
+
+Basically, MELG seems to be kind of just better than MT.
+But almost no one uses it.
+[Its GitHub repo](https://github.com/sharase/melg-64) has ten stars as of writing, and its associated paper has eight citations on Google Scholar, half of which seem to be simply mentions as an example of a PRNG.
+
+There's a bit of a problem with supplanting MT.
+You'd choose it as the PRNG in contexts where uniformity is important.
+But really, when uniformity is important, you probably don't actually care about *randomness*.
+
+Quasirandom number generators like Sobol sequences give up trying to "look random" and instead specifically optimize for covering their output space.
+Those mathematical simulations where MT would shine as a PRNG are almost unconditionally better served by a QRNG.
+
+Rather than being a generator for mathematics and science, MT is mostly popular as a general-purpose algorithm, because it appeared at a time when general-purpose PRNGs were otherwise often unacceptably poor quality for anything more than the most casual randomness.
+In other words, MT has been losing to PCG-DXSM, xoshiro256\*\*, and wyrand in recent years – not to other quality-oriented generators.
+
+
+### More Unpredictable
+
+I mentioned that Linux's `/dev/urandom` is based on ChaCha20.
+It isn't ChaCha20 exclusively; platform CSPRNG APIs like `/dev/urandom` or Windows' `CryptGenRand` generally incorporate some sources of extra randomness that aren't purely algorithmic, to ensure their outputs are truly secure.
+That leaves the question: When do you choose ChaCha20 (or ChaCha8) over those system CSPRNGs?
+
+Essentially, the answer comes down to, "when you don't need seeding."
+Platform CSPRNG APIs are, in general, ultra-secure and nowadays very fast.
+If you need security and you can get away with non-reproducibility, you should probably prefer them (in Go, through package crypto/rand).
+
+Arguably, ChaCha20 qualifies as the state of the art in secure PRNGs only because platform CSPRNGs can't actually be treated like PRNGs.
+Since they're allowed to incorporate external randomness sources, such as thermal noise from quantum processes in transistors in the CPU, they might literally *not* be pseudorandom.
+
+Of course, reproducibility has substantial benefits, like making unit testing much easier.
+There is much more that goes into making security-related decisions than I can describe.
+I am not a cryptographer, and all that.
+
+
+## Conclusion
+
+At this point, I've written close to everything I know about PRNGs, aside from technical details about the mathematics of linear recurrences and how statistical quality testing works.
+It's a bit longer than I thought it would be.
+Somehow my lightning talk at GopherCon 2023 will condense this down to seven minutes or less.
+
+It's pretty likely that math/rand/v2's package-level functions will be sufficient for most things you'll need to do.
+It isn't clear yet whether those functions will use wyrand (as of Go 1.20, that's what the math/rand package-level functions use if you never call Seed), PCG-DXSM, or ChaCha8.
+Regardless of which, it will be implemented efficiently, hooked directly into the Go runtime to minimize resource usage.
+Like in the section on platform CSPRNGs, using your own Source is mostly a matter of reproducibility.
+
+When you do need reproducibility, hopefully this article (or the corresponding talk) will help you choose the right PRNG for your application.
