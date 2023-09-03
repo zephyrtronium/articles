@@ -218,8 +218,8 @@ Xirho is fundamentally a random graph walk.
 That's exactly where you want a high quality generator, to be sure you're taking every path through the graph with the right probability.
 
 E.g., consider a graph with two nodes, A and B, with equal weight connections between those nodes and each back to themselves.
-We could represent a random walk on this graph by generating a single random value per step and saying that if it's at least half the maximum possible value then we choose A, otherwise we choose B.
-Equivalently, we're using the most significant bit of each output to make the choice.
+We could represent a random walk on this graph by generating a single random value per step and saying that if it's less than half the maximum possible value – equivalently, the most signifcant bit is 0 – then we choose A, otherwise we choose B.
+(Xirho makes this kind of decision the same way, by partitioning the output range according to relative weight and finding which partition a random value lands in.)
 
 Let's say we generate these random values using PCG-DXSM.
 Under ideal randomness, staying on the same node for 4 consecutive steps should happen with probability 1/16.
@@ -232,7 +232,8 @@ But modern fast generators aren't totally helpless in quality, either.
 PCG-DXSM is uniform over 64-bit values, not 64 separate bits.
 The run lengths of each bit, i.e. the number of repeats in a given position before toggling, is a fundamental measure of statistical quality.
 If PCG didn't actually work for this example, it would be generous to call it a PRNG at all.
-In an actual experiment, it does just fine.
+
+In an actual experiment testing this scenario, PCG-DXSM does just fine.
 Its lower uniformity might be a problem if we were working with large graphs, but it's rare for xirho to have even double digit nodes.
 
 
