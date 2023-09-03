@@ -310,11 +310,11 @@ In other words, MT has been losing to PCG-DXSM, xoshiro256\*\*, and wyrand in re
 
 I mentioned that Linux's `/dev/urandom` is based on ChaCha20.
 It isn't ChaCha20 exclusively; platform CSPRNG APIs like `/dev/urandom` or Windows' `CryptGenRand` generally incorporate some sources of extra randomness that aren't purely algorithmic, to ensure their outputs are truly secure.
-That leaves the question: When do you choose ChaCha20 (or ChaCha8) over those system CSPRNGs?
+That leaves the question: When do you choose ChaCha20 (or ChaCha8) over those system CSPRNGs, or vice-versa?
 
-Essentially, the answer comes down to, "when you don't need seeding."
+Essentially, the answer comes down to, "choose the platform CSPRNG whenever you don't need seeding."
 Platform CSPRNG APIs are, in general, ultra-secure and nowadays very fast.
-If you need security and you can get away with non-reproducibility, you should probably prefer them (in Go, through package crypto/rand).
+If you need security and you can get away with non-reproducible outputs, you should probably prefer them (in Go, through package crypto/rand).
 
 Arguably, ChaCha20 qualifies as the state of the art in secure PRNGs only because platform CSPRNGs can't actually be treated like PRNGs.
 Since they're allowed to incorporate external randomness sources, such as thermal noise from quantum processes in transistors in the CPU, they might literally *not* be pseudorandom.
