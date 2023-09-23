@@ -65,10 +65,6 @@ MT revolutionized PRNG techniques in computing, and today if you ask for random 
 In its most popular configuration, called MT19937 because it uses 19937 bits of state, not only is it uniform across individual outputs, but also consecutive pairs, groups of three, and so on all the way up to 623.
 It has other parameter sets that make it uniform all the way up to 6752 consecutive outputs.
 
-Technically, MT is k-distributed to 32-bit accuracy rather than equidistributed, i.e. perfectly uniform.
-Among some other slight differences, that means the all-zero group of each size appears once less often than the others in the overall sequence.
-But MT19937 has a period of 2<sup>19937</sup>-1, and the total count of groups is itself a number with over six thousand digits, so you'll never notice the difference.
-
 Thing is, in some contexts like GPU where you want potentially several thousand threads to use random numbers, 19937 bits isn't trivial.
 
 Furthermore, once you exceed that uniformity number, you lose it entirely.
@@ -124,8 +120,8 @@ Kind of.
 
 Being a compromise between factors, there are lots of points along the curve to choose.
 PCG-DXSM is uniform over 128 bits.
-xoshiro256\*\* is very slightly slower, but it's uniform over 256 bits.
-wyrand is very slightly faster, but it isn't based on any of the "classical" techniques, so its uniformity isn't well understood.
+xoshiro256\*\* is similar speed, but it's uniform over 256 bits, which also implies twice the storage.
+wyrand is faster, but it isn't based on any of the "classical" techniques, so its uniformity isn't well understood; it's also known to be slightly lower quality.
 Arguably, each of these three is the current state of the art, depending on exactly what you need.
 
 Those aren't all, though.
@@ -170,6 +166,126 @@ Since these longer jumps just exponentiate the matrix, you can use an algorithm 
 This helps with the "thousands of threads want independent sequences" situation.
 Seeding many PRNGs independently leaves you vulnerable to the birthday problem, especially because we're concerned about overlapping spans rather than exact matches.
 Copying and jumping the state for each thread instead avoids that problem.
+
+
+### Benchmarks
+
+This section has been all about how fast these PRNGs are, but anyone can tell you anything is fast.
+I collected highly optimized Go implementations of the generators I've described as state-of-the-art into a [shootout](https://gitlab.com/zephyrtronium/shootout) so that anyone can benchmark them.
+With a Go installation, just clone the repo and run `go test -bench .`.
+
+Here's a collection of results on comparable mid-high range consumer hardware.
+
+<table style="margin-bottom: 2.5rem;">
+	<thead>
+		<tr>
+			<th>PRNG</th>
+			<th colspan=2>AMD Ryzen 9 7900X</th>
+			<th colspan=2>Intel Core i7-13700K</th>
+			<th colspan=2>Apple M1 Pro</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td>ChaCha20</td>
+			<td>3.530 ns/op</td>
+			<td>2266.26 MB/s</td>
+			<td>4.671 ns/op</td>
+			<td>1712.58 MB/s</td>
+			<td>5.836 ns/op</td>
+			<td>1370.78 MB/s</td>
+		</tr>
+		<tr>
+			<td>ChaCha8</td>
+			<td>1.740 ns/op</td>
+			<td>4596.97 MB/s</td>
+			<td>2.617 ns/op</td>
+			<td>3057.42 MB/s</td>
+			<td>2.466 ns/op</td>
+			<td>3243.75 MB/s</td>
+		</tr>
+		<tr>
+			<td>MT (64-bit)</td>
+			<td>2.225 ns/op</td>
+			<td>3595.64 MB/s</td>
+			<td>1.672 ns/op</td>
+			<td>4784.57 MB/s</td>
+			<td>3.225 ns/op</td>
+			<td>2480.82 MB/s</td>
+		</tr>
+		<tr>
+			<td>PCG-DXSM</td>
+			<td>1.468 ns/op</td>
+			<td>5450.26 MB/s</td>
+			<td>1.302 ns/op</td>
+			<td>6142.36 MB/s</td>
+			<td>2.554 ns/op</td>
+			<td>3131.93 MB/s</td>
+		</tr>
+		<tr>
+			<td>wyrand</td>
+			<td>0.5433 ns/op</td>
+			<td>14725.19 MB/s</td>
+			<td>0.5066 ns/op</td>
+			<td>15790.65 MB/s</td>
+			<td>1.505 ns/op</td>
+			<td>5316.34 MB/s</td>
+		</tr>
+		<tr>
+			<td>xoshiro256**</td>
+			<td>0.7732 ns/op</td>
+			<td>10346.94 MB/s</td>
+			<td>0.7590 ns/op</td>
+			<td>10539.53 MB/s</td>
+			<td>2.137 ns/op</td>
+			<td>3743.01 MB/s</td>
+		</tr>
+	</tbody>
+</table>
+
+In each case, the first two are CSPRNGs, followed by a 64-bit variant of Mersenne Twister, and the bottom half are the speed-oriented PRNGs.
+Aside from ChaCha20 being the slowest every time and wyrand being the fastest, the results are surprisingly variable.
+On M1, ChaCha8 is even a bit better than PCG; it looks like just another member of the fast family.
+
+One important thing to keep in mind with these numbers, though, is that these benchmarks are very artificial.
+Given the tiny amount of work in the benchmark loops, PRNGs that lend themselves well to pipelining are given an artificial-ish boost.
+This is especially important for wyrand.
+
+In other words, the interpretation here is something along the lines of:
+"PCG, xoshiro256\*\*, and wyrand have fairly similar performance and are usually faster than Mersenne Twister and ChaCha8."
+The best idea is always to compare benchmarks in the context of your own application.
+
+As a more concrete example, here are numbers using some of these PRNGs in a simple single-threaded mathematical simulation on my 7900X:
+
+<table style="margin-bottom: 2.5rem;">
+	<thead>
+		<tr>
+			<th>PRNG</th>
+			<th>Iters/s</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td>ChaCha8</td>
+			<td>24002468</td>
+		</tr>
+		<tr>
+			<td>PCG-DXSM</td>
+			<td>25266099</td>
+		</tr>
+		<tr>
+			<td>wyrand</td>
+			<td>25631905</td>
+		</tr>
+		<tr>
+			<td>xoshiro256\*\*</td>
+			<td>25340965</td>
+		</tr>
+	</tbody>
+</table>
+
+It's hard to estimate exactly what proportion of work PRNG accounts for here.
+However, it's pretty clear that PCG, wyrand, and xoshiro are almost equal at the top, while ChaCha8 is slightly behind.
 
 
 ## Practicum: Choosing a Generator
@@ -265,7 +381,7 @@ That's why xirho uses xoshiro256\*\*.
 
 Not PCG-DXSM? That's the one in math/rand/v2, not to mention the previous examples.
 
-xoshiro256\*\*'s slightly worse performance but slightly higher uniformity happens to be exactly the right compromise we want to make for xirho.
+xoshiro256\*\*'s comparable performance but slightly higher uniformity happens to be exactly the right compromise we want to make for xirho.
 PCG-DXSM would probably do great as well; I haven't tried it.
 I probably will once math/rand/v2 is released.
 Maybe after I fix image resampling, though.
@@ -283,13 +399,13 @@ There are some honorable mentions I'd like to highlight.
 Just like PCG, xoshiro, and wyrand lie on a curve of compromise, so does MT.
 Elsewhere on that curve is the Well-Equidistributed Long-period Linear (WELL) family.
 WELL is almost another variant of MT, but with a different choice of parameters that leads to measurably improved quality; WELL19937 passes several statistical tests that MT19937 fails.
-However, it's also substantially slower, and MT is already possibly the slowest PRNG mentioned to this point.
+However, it's also substantially slower, and MT is already among the slower PRNGs we've covered.
 
 Another point on the curve is Maximally Equidistributed F2-Linear Generator with Mersenne Prime Period, or MELG-64.
 MELG is a bit faster than MT (although slower than SFMT, the SIMD-oriented variant).
-It's also higher quality, and it meets a much stronger equidistribution property, being maximally equidistributed rather than k-distributed to 32-bit accuracy.
+It's also higher quality, and it meets a much stronger equidistribution property.
 Also, it has less tendency to group states with many 0 bits, meaning it appears more random beyond its 311 number equidistribution limit.
-(MELG-64 is 64-bit first, as the name implies, but it uses the same 19937 bit state size. It's equidistributed over half the length of consecutive numbers of MT, but the numbers themselves are twice as wide.)
+(MELG-64 is 64-bit first, as the name implies, but it uses the same 19937 bit state size as MT, which is 32-bit. It's equidistributed over half the length of consecutive numbers of MT, but the numbers themselves are twice as wide.)
 
 Basically, MELG seems to be kind of just better than MT.
 But almost no one uses it.
@@ -302,6 +418,10 @@ But really, when uniformity is important, you probably don't actually care about
 Quasirandom number generators like Sobol sequences give up trying to "look random" and instead specifically optimize for incrementally covering their output space.
 They're "as-if random," rather than "fake random."
 Those mathematical simulations where MT would shine as a PRNG are almost unconditionally better served by a QRNG.
+
+Prof. Sebastiano Vigna, co-author of the xoshiro family among many other PRNGs and PRNG tests, even has a paper titled "[It is high time we let go of the Mersenne Twister](https://arxiv.org/abs/1910.06437)."
+In it, he describes a number of issues with MT and MT-like PRNGs.
+Particularly interesting is section 6, which describes why equidistribution can actually be a problematic property!
 
 Rather than being a generator for mathematics and science, MT is mostly popular as a general-purpose algorithm, because it appeared at a time when general-purpose PRNGs were otherwise often unacceptably poor quality for anything more than the most casual randomness.
 In other words, MT has been losing to PCG-DXSM, xoshiro256\*\*, and wyrand in recent years – not to other quality-oriented generators.
