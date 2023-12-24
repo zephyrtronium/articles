@@ -7,6 +7,12 @@
 		]
 	},
 	{
+		"section": "Type Techniques",
+		"articles": [
+			"unmarshal-validation"
+		]
+	},
+	{
 		"section": "Miscellany",
 		"articles": [
 			"copilot",
