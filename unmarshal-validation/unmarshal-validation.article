@@ -9,7 +9,7 @@ Business Applications Engineer, Velocigo
 https://gitlab.com/zephyrtronium/
 
 
-## Parse, And Validate
+## Parse, Don't Validate
 
 In essence, this article is about this method:
 
@@ -259,7 +259,7 @@ Although, arguably, if we have `UnmarshalText`, then we probably shouldn't have 
 We can always do validation there instead, and it keeps us to fewer entry points.
 
 
-## Parse, Don't Validate
+## Parse, And Validate
 
 We've now given `Bocchi` a proper constructor.
 Of course, this is just a template of a technique.
