@@ -39,6 +39,7 @@ In contrast, a KessokuBand naturally contains a Bocchi and a Ryou, and it natura
 
 Is it particularly common for me to need a place name when describing a programming concept? Probably not.
 However, there is another common situation where I need a library of example terms with preconstructed relationships, including place names, domain names, dates, email addresses, &c.: unit tests.
+
 (And in those cases, I've found that using Japanese terms has the added benefit of reminding me that things like person names, street addresses, and phone numbers don't always follow the conventions I'm accustomed to as an American.)
 
 I am writing this article for two purposes.
@@ -52,7 +53,7 @@ That is the rest of this article.
 
 ## People, and default examples
 
-Except as noted, names are written in Japanese convention of family name preceding given name, where relevant.
+Names are written in Japanese convention of family name preceding given name, where relevant.
 
 - Bocchi (ぼっち)
 	+ Member of Kessoku Band
