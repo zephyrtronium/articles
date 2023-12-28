@@ -24,30 +24,30 @@ I prefer certain example terms that I haven't seen anyone else use.
 My defaults are Bocchi, Ryou, Nijika, and Kita.
 Some may recognize these as the lead characters from the Japanese comedy cartoon, *Bocchi the Rock!*
 
-Now, I did enjoy watching that cartoon, but I have much stronger reasons for preferring terms from it for examples than that.
+Now, I did enjoy watching that cartoon, but I have much stronger reasons for preferring terms from it for examples.
 It's very common that I use Bocchi terms *semantically* for examples.
 Not as their meanings, per se; they are just person names.
 Rather, I use the abstract relationships within the setting of *Bocchi the Rock!* to reflect the relationships between terms in my examples.
+
+I could reach for baz when I need something that contains a foo and a bar, but then I have to spend time thinking once I need a place for a baz to be.
+In contrast, a KessokuBand naturally contains a Bocchi and a Ryou, and it naturally lives in Shimokitazawa.
 
 Of course, that's only really meaningful for those familiar with the events of the cartoon.
 For the majority of people, the terms are unintelligible.
 But that's no different from choosing asemic terms like foo and bar in the first place.
 Even if it doesn't particularly help the reader, it does lower the cognitive load on myself as the writer as my examples grow more complex.
 
-I could reach for baz when I need something that contains a foo and a bar, but then I have to spend time thinking once I need a place for a baz to be.
-In contrast, a KessokuBand naturally contains a Bocchi and a Ryou, and it naturally lives in Shimokitazawa.
-
 Is it particularly common for me to need a place name when describing a programming concept? Probably not.
 However, there is another common situation where I need a library of example terms with preconstructed relationships, including place names, domain names, dates, email addresses, &c.: unit tests.
 
-(And in those cases, I've found that using Japanese terms has the added benefit of reminding me that things like person names, street addresses, and phone numbers don't always follow the conventions I'm accustomed to as an American.)
+(And in tests, I've found that using Japanese terms has the added benefit of reminding me that things like person names, street addresses, and phone numbers don't always follow the conventions I'm accustomed to as an American.)
 
 I am writing this article for two purposes.
 The first purpose is to challenge thoughtless use of asemic example terms in places where terms with semantic relationships could provide a richer experience, or at least make writing easier.
 Human brains are very good at thinking, but they're also very good at avoiding thinking, and that's an inhibition.
 If you've thought something like, "I'll use Bocchi ([or Madoka](https://www.reddit.com/r/rust/comments/6hirku/why_are_there_so_many_madoka_references_in_rusts/)) for examples, too!" or "I hate weebs, just use a normal source like Dr. Who instead," then I've already fulfilled this goal.
 
-The second purpose is to construct a reference of the kinds and content of relationships depicted specifically in Bocchi, so that I don't have to keep navigating to the corresponding Wikipedia article and community Discord server to look up certain details when writing unit tests for my DAOs and DTOs.
+The second purpose is to construct a reference of the kinds and content of relationships depicted specifically in Bocchi, so that I don't have to keep navigating to the corresponding Wikipedia article and community Discord server to look up certain details when writing unit tests for my DAOs and DTOs at work.
 That is the rest of this article.
 
 
