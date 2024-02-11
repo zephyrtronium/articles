@@ -1,0 +1,252 @@
+# Static Assert in Go
+Type Techniques
+11 Feb 2024
+Tags: go, types
+Summary: Make the compiler check your assumptions before any code runs.
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## Static assert
+
+In programming, *assert* means "check an assumption."
+The term comes at least from the earliest C standards, where the standard library `assert` macro aborts the program if an expression is false and it was compiled in a particular debug configuration.
+
+C++ (and probably other languages) adapted that idea to the *static assertion*, `static_assert`.
+The idea is to make the compiler, rather than the program, perform the assertion.
+
+Obviously, that requires that the expectation be something the compiler can check, but the idea turns out to be very powerful regardless.
+We can use it to guarantee that integer types have the ranges we expect, or that types are the size we expect, or that struct fields are laid out how we expect, or that macros expand to values we expect.
+There are many implications for writing robust, maintainable programs.
+
+In Go, we don't really have a particular assert mechanism beyond conditional panicking.
+Nor do we have a particular concept of static assertions beyond type checking.
+However, it turns out there are still some powerful static assertions we can perform in Go.
+
+
+## Implements assertions
+
+C++, C#, Java, and most other object-oriented languages use *nominal subtyping* for interfaces: in order to implement an interface, your type has to declare that it implements the interface.
+Then if you don't implement all the interface's methods, you get a type error.
+
+Go, on the other hand, uses *structural subtyping* for interfaces.
+You can skip the "declare it implements the interface" part; all you need is the methods.
+That said, it's still often useful to verify a type you're defining implements the right thing, whether to make sure you don't drift or to fill out the methods initially.
+
+In order to "declare" that your new type implements some interface, you can write a kind of static assertion.
+The exact form of the assertion varies depending on exactly what the concrete type is, so I'll show several examples.
+
+```
+// Strummer is an interface we want to verify our types implement.
+type Strummer interface {
+	Strum()
+}
+```
+
+```
+// Bocchi demonstrates the "typical" scenario: a struct type that implements
+// Strummer via pointer.
+type Bocchi struct {
+	Guitar string
+}
+
+// Kita implements Strummer as a value.
+type Kita struct {
+	Guitar string
+}
+
+// Kikuri isn't even a struct but still implements Strummer.
+type Kikuri int
+
+func (*Bocchi) Strum() {}
+func (Kita) Strum()    {}
+func (Kikuri) Strum()  {}
+```
+
+Finally, the assertions:
+
+```
+var _ Strummer = (*Bocchi)(nil)
+var _ Strummer = Kita{}
+var _ Strummer = (*Kita)(nil) // also works, but technically asserts a different thing
+var _ Strummer = Kikuri(0)
+```
+
+In each case, we declare a variable of the interface type and assign a value of the concrete type to it.
+We don't need a name for the variable; just `_` is fine.
+All we're doing is verifying that this typechecks – that the concrete type is assignable to the interface type, which happens only when the concrete type implements the interface.
+
+I think this is a fairly well-known technique in Go, so this might not be anything new to you.
+That said, it's still a kind of static assertion, and I think its usefulness serves as a good example of why we want these kinds of things.
+
+
+## Constant index assertions
+
+The most flexible static assertion mechanism in Go takes advantage of a property of arrays.
+Not slices; arrays.
+There's one brief line in the Go specification's description of [index expressions](https://go.dev/ref/spec#Index_expressions) that's important here.
+
+> A primary expression of the form `a[x]` denotes the element of […] `a` indexed by `x`.
+>
+> …
+>
+> For `a` of array type `A`:
+> - a constant index must be in range
+
+That means that if a constant (as in `const`) index *isn't* in range, i.e. between 0 inclusive and the length of the array exclusive, we get a compilation error.
+So, if we can produce (integer) constants that express our assumptions, we may be able to use them to write static assertions.
+It's a little ugly, but these assertions take the following form:
+
+```
+var _ = [1]struct{}{}[constReality-constAssumption]
+```
+
+In other words, we compute some constant expressing the compiler's understanding of something, and subtract from it the programmer's understanding of the same thing.
+The result is constant 0 when both numbers are the same.
+And for a `[1]struct{}`, the only in-bounds index is 0.
+If the compiler computes any other value for the expression, the requirement that constant indices are in range causes it to reject the program.
+
+Usually, `constAssumption` will be some numeric literal; just `4` or `8` or `760`.
+Whatever number qualifies as an "expectation."
+The real power of this comes from how we get `constReality`.
+What can we make the compiler compute for us?
+
+
+### Iota enumerants
+
+Probably the most obvious place to get constants we can use for this kind of assertion is from, well, constants.
+This is especially important for constants that we don't give explicit values for: those we use `iota` to produce.
+(Some people call these *enumerants*.)
+
+Consider these definitions.
+
+```
+type BandMember int
+const (
+	Bocchi BandMember = iota
+	Ryou
+	Nijika
+	Kita
+
+	maxBand
+)
+```
+
+We have five named constants of type `BandMember`.
+The `maxBand` constant in particular tells us how many of the "real" constants we have, even if we add new ones or remove Kita.
+So, we can write a static assertion on that number:
+
+```
+var _ = [1]struct{}{}[maxBand-4]
+```
+
+We can write even more static assertions against these definitions, though.
+In fact, if we run `golang.org/x/tools/cmd/stringer` on this to produce an automatic `func (i BandMember) String() string` method, *the output uses this technique*.
+
+```
+func _() {
+	// An "invalid array index" compiler error signifies that the constant values have changed.
+	// Re-run the stringer command to generate them again.
+	var x [1]struct{}
+	_ = x[Bocchi-0]
+	_ = x[Ryou-1]
+	_ = x[Nijika-2]
+	_ = x[Kita-3]
+	_ = x[maxBand-4]
+}
+```
+
+If any of the enumerants change, the corresponding line of this function becomes a compiler error.
+Then we know we need to rerun `stringer`.
+The generated `String()` method can never drift out of sync with the source.
+It's a static assertion on the whole list of constants.
+
+
+### Functions from types to constants
+
+A less obvious source of constants is package unsafe.
+It defines three built-in (read: "magic") functions that – outside of a special circumstance – have constant results.
+These are unsafe.Sizeof, unsafe.Alignof, and unsafe.Offsetof.
+Using these lets us write static assertions about properties of our types other than just their methods.
+
+While I can imagine uses for all three of these, the most useful one in practice is probably unsafe.Sizeof.
+There are two ways that I've used it in static assertions.
+
+The first is to help ensure that I don't forget to update tests when I change the fields in a struct, in situations where it's especially important to keep them in sync.
+Once the struct is defined, I write my static assertion against a "programmer expectation" of 0.
+
+```
+type Bocchi struct {
+	TrackSuit string
+	Guitar    string
+}
+
+var _ [1]struct{}{}[unsafe.Sizeof(Bocchi{})-0]
+```
+
+This gives a compiler error which immediately tells me the correct size of 32.
+
+```
+var _ [1]struct{}{}[unsafe.Sizeof(Bocchi{})-32]
+```
+
+Well, except it's actually 16 on some targets.
+Really, the correct way to write this is to sum up the sizes of the fields.
+
+```
+var _ [1]struct{}{}[unsafe.Sizeof(Bocchi{})-2*unsafe.Sizeof(string)]
+```
+
+When it's so sensitive to the contents of the struct type, you might argue it's an excessively fragile check.
+But remember that having it break when the definition changes is *literally the point*.
+
+The real downside is that it isn't actually an assertion on the right thing.
+What we really want is an assertion on the number, names, and types of fields.
+But, in practice, the size is a close enough proxy, and it's much faster to write than throwing down an unsafe.Offsetof assertion for every field I care about.
+
+The other useful unsafe.Sizeof assertion I've found is with cgo.
+I've experimented with cgo-free wrappers for APIs like OpenCL and Vulkan.
+In situations like that, a very useful pattern is to assert that the Go types I'm defining (usually by generated code) match the corresponding types of the C APIs.
+
+```
+package cgoproxy
+
+/*
+​#include <CL/opencl.h>
+*/
+import "C"
+
+import (
+	"unsafe"
+
+	"gitlab.com/zephyrtronium/cl"
+)
+
+// Statically assert that cl.Version and C.cl_version are the same size.
+var _ = [1]struct{}{}[unsafe.Sizeof(cl.Version(0))-C.sizeof_cl_version]
+```
+
+In a separate package from the "cgo-free" functionality, we assert that the Go type and the C type have the same size.
+Then whenever cgo is enabled, we see statically if our Go definition is wrong.
+A simple check that can save a lot of headache.
+
+All that said, there are a couple caveats to this technique.
+These "functions from types to constants" generally don't produce constants when the type in question is a type parameter.
+That is, it pretty much just doesn't work in generic code.
+You can't write a function that abstracts this style of check, for example.
+
+More situationally, it only works consistently starting in Go 1.22.
+In prior versions, under some circumstances, the compiler and go/types would compute different answers for the size of a type.
+That difference would [cause vet to break](https://go.dev/issue/60431), which in turn would prevent `go test` from passing because vet "failed."
+Changing the assertion to make vet succeed would then cause the compiler itself to reject the code.
+
+
+## Static asserted
+
+There are other sources of constant expressions in Go, but I haven't yet found a place where, say the length of an array type is a useful thing to statically assert.
+(Maybe verifying the shape of an affine transformation type?)
+
+The important thing is to recognize static assertions as a technique available in Go.
+When they're useful, they make code substantially more robust.

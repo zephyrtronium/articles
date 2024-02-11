@@ -9,7 +9,8 @@
 	{
 		"section": "Type Techniques",
 		"articles": [
-			"unmarshal-validation"
+			"unmarshal-validation",
+			"static-assert"
 		]
 	},
 	{
