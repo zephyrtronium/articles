@@ -23,6 +23,21 @@
 		{{ end }}
 		{{ range .Sections }}{{ elem $.Template . }}{{ end }}
 	</article>
+	<div id="clicky"><a style="display:none;" href="#">Click here to go to GitHub!</a></div>
+	<script>
+		function injectClicky(event) {
+			if (event.origin !== 'https://giscus.app') return;
+			if (!(typeof event.data === 'object' && event.data.giscus)) return;
+			const giscusData = event.data.giscus;
+			if ('discussion' in giscusData) {
+				const clicky = document.querySelector('#clicky a');
+				clicky.href = giscusData.discussion.url;
+				clicky.style.display = "";
+				window.removeEventListener('message', injectClicky);
+			}
+		}
+		window.addEventListener('message', injectClicky);
+	</script>
 	<script src="https://giscus.app/client.js"
 		data-repo="zephyrtronium/zephyrtronium.github.io"
 		data-repo-id="MDEwOlJlcG9zaXRvcnkyNjEwNDIxNTQ="
@@ -30,7 +45,7 @@
 		data-category-id="DIC_kwDOD48v6s4B_JuI"
 		data-mapping="og:title"
 		data-reactions-enabled="1"
-		data-emit-metadata="0"
+		data-emit-metadata="1"
 		data-theme="https://zephyrtronium.github.io/style/giscus.css"
 		crossorigin="anonymous"
 		async>
