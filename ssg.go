@@ -136,7 +136,7 @@ func main() {
 				Link:        &feeds.Link{Href: l},
 				Author:      &feeds.Author{Name: manifest.Author, Email: manifest.Email},
 				Description: doc.Summary,
-				Id:          u,
+				Id:          l,
 				Created:     when,
 			}
 			feed.Items = append(feed.Items, &fi)
