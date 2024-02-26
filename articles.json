@@ -1,25 +1,32 @@
-[
-	{
-		"section": "Data Structures for Throughput",
-		"articles": [
-			"rwmutex",
-			"syncmap"
-		]
-	},
-	{
-		"section": "Type Techniques",
-		"articles": [
-			"unmarshal-validation",
-			"static-assert"
-		]
-	},
-	{
-		"section": "Miscellany",
-		"articles": [
-			"copilot",
-			"generics-enums",
-			"randomness",
-			"bocchi"
-		]
-	}
-]
+{
+	"title": "zephyrtronium",
+	"author": "zephyrtronium",
+	"email": "zephyrtronium@hey.com",
+	"href": "https://zephyrtronium.github.io/",
+	"description": "correct opinions about types, go, capital letters, &c.",
+	"sections": [
+		{
+			"section": "Data Structures for Throughput",
+			"articles": [
+				"rwmutex",
+				"syncmap"
+			]
+		},
+		{
+			"section": "Type Techniques",
+			"articles": [
+				"unmarshal-validation",
+				"static-assert"
+			]
+		},
+		{
+			"section": "Miscellany",
+			"articles": [
+				"copilot",
+				"generics-enums",
+				"randomness",
+				"bocchi"
+			]
+		}
+	]
+}

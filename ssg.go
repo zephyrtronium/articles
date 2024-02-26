@@ -29,12 +29,23 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/gorilla/feeds"
 	"golang.org/x/tools/present"
 )
+
+type manifest struct {
+	Title       string    `json:"title"`
+	Author      string    `json:"author"`
+	Email       string    `json:"email"`
+	Href        string    `json:"href"`
+	Description string    `json:"description"`
+	Sections    []section `json:"sections"`
+}
 
 type section struct {
 	Section  string   `json:"section"`
@@ -83,9 +94,9 @@ func main() {
 	if err != nil {
 		log.Fatalln("error reading manifest:", err)
 	}
-	var sections []section
-	if err := json.Unmarshal(s, &sections); err != nil {
-		log.Fatalln("error unmarshaling sections:", err)
+	var manifest manifest
+	if err := json.Unmarshal(s, &manifest); err != nil {
+		log.Fatalln("error unmarshaling manifest:", err)
 	}
 
 	tmpl := present.Template()
@@ -98,16 +109,37 @@ func main() {
 		log.Fatalln("couldn't make articles output dir:", err)
 	}
 	var meta []metadata
-	for _, sec := range sections {
+	feed := feeds.Feed{
+		Title:       manifest.Title,
+		Link:        &feeds.Link{Href: manifest.Href},
+		Description: manifest.Description,
+		Author:      &feeds.Author{Name: manifest.Author, Email: manifest.Email},
+		Created:     time.Now(),
+	}
+	for _, sec := range manifest.Sections {
 		m := metadata{Section: sec.Section}
 		for _, art := range sec.Articles {
 			log.Println(sec.Section, art)
-			doc, url, err := doArticle(outdir, art, tmpl)
+			doc, u, when, err := doArticle(outdir, art, tmpl)
 			if err != nil {
 				log.Println(err)
 				continue
 			}
-			m.Articles = append(m.Articles, article{URL: url, Title: doc.Title, Summary: doc.Summary, Time: doc.Time})
+			m.Articles = append(m.Articles, article{URL: u, Title: doc.Title, Summary: doc.Summary, Time: doc.Time})
+			l, err := url.JoinPath(manifest.Href, u)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			fi := feeds.Item{
+				Title:       doc.Title,
+				Link:        &feeds.Link{Href: l},
+				Author:      &feeds.Author{Name: manifest.Author, Email: manifest.Email},
+				Description: doc.Summary,
+				Id:          u,
+				Created:     when,
+			}
+			feed.Items = append(feed.Items, &fi)
 		}
 		meta = append(meta, m)
 	}
@@ -116,17 +148,25 @@ func main() {
 	if err := renderIndex(filepath.Join(outdir, "index.html"), meta, tmpl); err != nil {
 		log.Println(err)
 	}
+	// render feed
+	atom, err := feed.ToAtom()
+	if err != nil {
+		log.Println("generating atom feed:", err, "(continuing)")
+	}
+	if err := os.WriteFile(filepath.Join(outdir, "weblog.atom"), []byte(atom), 0644); err != nil {
+		log.Println("writing atom feed:", err, "(continuing)")
+	}
 	log.Println("done")
 }
 
-func doArticle(out, in string, tmpl *template.Template) (doc *present.Doc, url string, err error) {
+func doArticle(out, in string, tmpl *template.Template) (doc *present.Doc, url string, when time.Time, err error) {
 	var cwd string
 	cwd, err = os.Getwd()
 	if err != nil {
-		return nil, "", fmt.Errorf("couldn't get cwd: %w", err)
+		return nil, "", time.Time{}, fmt.Errorf("couldn't get cwd: %w", err)
 	}
 	if err := os.Chdir(in); err != nil {
-		return nil, "", fmt.Errorf("couldn't cd to %s: %w", in, err)
+		return nil, "", time.Time{}, fmt.Errorf("couldn't cd to %s: %w", in, err)
 	}
 	defer func() {
 		nerr := os.Chdir(cwd)
@@ -139,10 +179,11 @@ func doArticle(out, in string, tmpl *template.Template) (doc *present.Doc, url s
 		}
 	}()
 	if doc, err = parse(in); err != nil {
-		return nil, "", err // error already wrapped
+		return nil, "", time.Time{}, err // error already wrapped
 	}
 	url = filepath.Join("articles", in+".html")
-	return doc, filepath.ToSlash(url), render(filepath.Join(out, url), doc, tmpl) // error already wrapped
+	err = render(filepath.Join(out, url), doc, tmpl) // error already wrapped
+	return doc, filepath.ToSlash(url), doc.Time, err
 }
 
 func parse(in string) (*present.Doc, error) {
