@@ -82,31 +82,21 @@ I think this is a fairly well-known technique in Go, so this might not be anythi
 That said, it's still a kind of static assertion, and I think its usefulness serves as a good example of why we want these kinds of things.
 
 
-## Constant index assertions
+## Numeric assertions
 
-The most flexible static assertion mechanism in Go takes advantage of a property of arrays.
+A more flexible static assertion mechanism in Go takes advantage of a property of arrays.
 Not slices; arrays.
-There's one brief line in the Go specification's description of [index expressions](https://go.dev/ref/spec#Index_expressions) that's important here.
-
-> A primary expression of the form `a[x]` denotes the element of […] `a` indexed by `x`.
->
-> …
->
-> For `a` of array type `A`:
-> - a constant index must be in range
-
-That means that if a constant (as in `const`) index *isn't* in range, i.e. between 0 inclusive and the length of the array exclusive, we get a compilation error.
-So, if we can produce (integer) constants that express our assumptions, we may be able to use them to write static assertions.
-It's a little ugly, but these assertions take the following form:
+We can take advantage of array types allowing arbitrary constant expressions in their sizes.
+It's a little ugly, but these *array literal assertions* take the following form:
 
 ```
-var _ = [1]struct{}{}[constReality-constAssumption]
+var _ [0]struct{} = [constReality - constAssumption]struct{}{}
 ```
 
 In other words, we compute some constant expressing the compiler's understanding of something, and subtract from it the programmer's understanding of the same thing.
 The result is constant 0 when both numbers are the same.
-And for a `[1]struct{}`, the only in-bounds index is 0.
-If the compiler computes any other value for the expression, the requirement that constant indices are in range causes it to reject the program.
+Hence, the value we're making is assignable to the `[0]struct{}` variable only when that happens.
+If the compiler computes any other value for the expression, we get a type check failure; it's an illegal assignment, or an invalid array size if the expression goes negative.
 
 Usually, `constAssumption` will be some numeric literal; just `4` or `8` or `760`.
 Whatever number qualifies as an "expectation."
@@ -139,11 +129,11 @@ The `maxBand` constant in particular tells us how many of the "real" constants w
 So, we can write a static assertion on that number:
 
 ```
-var _ = [1]struct{}{}[maxBand-4]
+var _ [0]struct{} = [maxBand - 4]struct{}{}
 ```
 
 We can write even more static assertions against these definitions, though.
-In fact, if we run `golang.org/x/tools/cmd/stringer` on this to produce an automatic `func (i BandMember) String() string` method, *the output uses this technique*.
+In fact, if we run `golang.org/x/tools/cmd/stringer` on this to produce an automatic `func (i BandMember) String() string` method, *the output uses a similar technique*.
 
 ```
 func _() {
@@ -163,6 +153,10 @@ Then we know we need to rerun `stringer`.
 The generated `String()` method can never drift out of sync with the source.
 It's a static assertion on the whole list of constants.
 
+Note that the form of the check `stringer` uses is slightly different from ours.
+It still accomplishes the same thing, and in fact, this article originally explained the `stringer` approach instead.
+I switched to the "assign to `[0]struct`" technique instead because it's a bit more compact, formats better, and has a minor semantic advantage which I'll explain later.
+
 
 ### Functions from types to constants
 
@@ -175,6 +169,7 @@ While I can imagine uses for all three of these, the most useful one in practice
 There are two ways that I've used it in static assertions.
 
 The first is to help ensure that I don't forget to update tests when I change the fields in a struct, in situations where it's especially important to keep them in sync.
+(Perhaps a type is generated from some other source, like by parsing a database schema, and I want to see the need for updates before I run tests.)
 Once the struct is defined, I write my static assertion against a "programmer expectation" of 0.
 
 ```
@@ -183,20 +178,22 @@ type Bocchi struct {
 	Guitar    string
 }
 
-var _ [1]struct{}{}[unsafe.Sizeof(Bocchi{})-0]
+var _ [0]struct{} = [unsafe.Sizeof(Bocchi{}) - 0]struct{}{}
 ```
 
-This gives a compiler error which immediately tells me the correct size of 32.
+This gives a compiler error that mentions `value of type [32]struct{}`, so I know the correct size is 32.
 
 ```
-var _ [1]struct{}{}[unsafe.Sizeof(Bocchi{})-32]
+var _ [0]struct{} = [unsafe.Sizeof(Bocchi{}) - 32]struct{}{}
 ```
 
 Well, except it's actually 16 on some targets.
 Really, the correct way to write this is to sum up the sizes of the fields.
 
 ```
-var _ [1]struct{}{}[unsafe.Sizeof(Bocchi{})-2*unsafe.Sizeof(string)]
+var _ [0] struct{} = [unsafe.Sizeof(Bocchi{}) - 2*unsafe.Sizeof("")]struct{}{}
+// or
+var _ [0] struct{} = [unsafe.Sizeof(Bocchi{}) - (unsafe.Sizeof(Bocchi{}.TrackSuit) + unsafe.Sizeof(Bocchi{}.Guitar))]struct{}{}
 ```
 
 When it's so sensitive to the contents of the struct type, you might argue it's an excessively fragile check.
@@ -225,7 +222,7 @@ import (
 )
 
 // Statically assert that cl.Version and C.cl_version are the same size.
-var _ = [1]struct{}{}[unsafe.Sizeof(cl.Version(0))-C.sizeof_cl_version]
+var _ [0]struct{} = [unsafe.Sizeof(cl.Version(0)) - C.sizeof_cl_version]struct{}{}
 ```
 
 In a separate package from the "cgo-free" functionality, we assert that the Go type and the C type have the same size.
@@ -238,14 +235,45 @@ That is, it pretty much just doesn't work in generic code.
 You can't write a function that abstracts this style of check, for example.
 
 More situationally, it only works consistently starting in Go 1.22.
-In prior versions, under some circumstances, the compiler and go/types would compute different answers for the size of a type.
+In prior versions, under some circumstances, the compiler and package go/types would compute different answers for the size of a type.
 That difference would [cause vet to break](https://go.dev/issue/60431), which in turn would prevent `go test` from passing because vet "failed."
 Changing the assertion to make vet succeed would then cause the compiler itself to reject the code.
 
 
+## Boolean assertions
+
+Array literal assertions only work on integer constants.
+[tdakkota points out](https://www.reddit.com/r/golang/comments/1aomrab/comment/kq878m0/?context=3) an approach that works for any constant Boolean expression.
+I'll call these *map literal assertions*.
+
+```
+var _ = map[bool]struct{}{
+	<expr>: {},
+	false: {},
+}
+```
+
+Fill in `<expr>` with your assertion of choice.
+This works because, for composite literals, "[i]t is an error to specify multiple elements with the same field name or constant key value."
+If we "reserve" the `false` key in a `map[bool]struct{}` literal, then we can't have any other key evaluate statically to `false`.
+
+Map literal assertions are nice for a few reasons.
+The main advantage, in my opinion, is that the assertion style is the same as what's familiar to most people.
+It directly reflects the idea of "assert this expression is true."
+
+Perhaps just as important, though, is that they allow us to write assertions on things that aren't integers.
+We can write static assertions against particular values of string constants, for example, because we can just write any static comparison.
+
+They're certainly much more readable than the array literal approach, too.
+
+The only real downside to map literal assertions is that they don't guarantee the expressions we're checking are constant.
+If we accidentally put any non-constant value in the expression, the assertion always succeeds silently.
+In contrast, the size of an array type must be a constant, so the compiler will also reject an array literal where the assertion becomes dynamic.
+
+
 ## Static asserted
 
-There are other sources of constant expressions in Go, but I haven't yet found a place where, say the length of an array type is a useful thing to statically assert.
+There are other sources of constant expressions in Go, but I haven't yet found a place where, say, the length of an array type is a useful thing to statically assert.
 (Maybe verifying the shape of an affine transformation type?)
 
 The important thing is to recognize static assertions as a technique available in Go.
