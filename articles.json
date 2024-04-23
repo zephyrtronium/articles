@@ -20,6 +20,12 @@
 			]
 		},
 		{
+			"section": "Thoughts on a Programming Language",
+			"articles": [
+				"lang"
+			]
+		},
+		{
 			"section": "Miscellany",
 			"articles": [
 				"copilot",

@@ -1,0 +1,297 @@
+# Thoughts on a Programming Language
+Thoughts on a Programming Language
+23 Apr 2024
+Tags: programming language, types
+Summary: A summary of design goals for the programming language I wish I were using.
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium
+
+
+## Background
+
+I like Go (even though it's hard to express the constraints I want).
+I like Rust (even though it has sickeningly slow compile times).
+I like TypeScript (even though the cruft from its less-typed ancestor often shows through).
+I like Haskell (even though I don't have quite the education it wants from me).
+
+Yet still, I find myself wanting a better programming language.
+
+For the past few months, I have been thinking about how "a better programming language" would look to me.
+Recently, I have started accumulating written notes, ranging from considerations about syntax to musings about whether it's a good idea to use type classes.
+
+Now I've decided to start publishing those notes more visibly on this weblog.
+The plan is to continue writing notes, usually short ones, once per day.
+If I continue on this plan, eventually there will be enough written down to derive a specification and an implementation or two.
+
+For historical and community reasons, the tentative name for this programming language is ligma lang.
+I don't think I want to use that name permanently, because I suspect it would attract an undesirable crowd.
+I have ideas for what permanent name to use, but for now, that is low on the list of thoughts.
+
+Relative to better programming language designers, my education is a bit unusual.
+I have most of an undergraduate computer science degree and half an undergraduate math degree, both sans category theory.
+I like to try to use precise terms regardless.
+Feel free to correct me if I miss the mark.
+
+The first thing to move here is the summary of design goals.
+This list is subject to frequent additions, given how early in the concept I am.
+
+
+## The Programming Language Is the Developer Experience
+
+The first and most crucial design goal is really a statement of attitude.
+Perhaps more precisely, it's a rejection of an attitude I frequently observe.
+
+*We need to stop treating programming languages as compilers.*
+
+Or interpreters, as it were.
+Even at a very narrow scope, treating a programming language as its implementation is perilous.
+
+Consider Rust, a major programming language currently having no formal specification.
+[rust-gcc](https://rust-gcc.github.io/), the in-progress GCC frontend for Rust, is three and a half years deep with over 1100 contributors.
+It *still* does not implement Rust.
+
+Contrast with Go, which has been a specification-first language almost since its conception.
+One of the core Go team members, Ian Lance Taylor, famously joined the project by simply showing up with gccgo, before the language was even v1.
+
+That said, there's more to this idea than just what can go wrong.
+One of the features I find most intriguing about Zig is built-in syntactic support for tests.
+Functionally, it isn't really different from what Go, Rust, or most other languages do for automated tests.
+Between the lines, it shows that Zig understands that testing is a core piece of the operations of a software developer.
+
+There's more to the idea of considering the developer experience holistically, too.
+I'm imagining a language which opts for semantic versioning *semantically*.
+The language should help you determine when your API changes and you need a version bump.
+
+Tests should be first-class.
+Tooling from code style to static analysis should be first-class.
+A language server should be first-class, probably one of the first programs written in any serious programming language being designed in 2024.
+
+The goal of ligma lang is this statement:
+the programming language is the developer experience.
+
+
+## Structured Concurrency
+
+Structured concurrency is the idea of tying the lifetimes of threads to lexical scopes.
+Roughly speaking, for any starting point of a thread, you can find the stopping point just by scanning the code – even if you don't know the types or even the language you're reading.
+An excellent and very detailed introduction to structured concurrency is njs's [Go Statement Considered Harmful](https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/).
+
+By no means is structured concurrency a new idea.
+If you've worked much with frontend development, you've probably used something like `Promise.all` or one of the other Promise methods.
+Given a bit of leeway in the definition, that's an implementation of structured concurrency:
+for every promise in the argument list, you know that it is completed by the time the result promise of `Promise.all` is awaited (or chained with `.then`).
+
+Rust has scoped threads.
+Zig has async frames.
+I know that Kotlin has strong support as well, although I don't know the details.
+For languages that don't have structured concurrency built in, it's usually straightforward to implement as a library.
+E.g., Go has [x/sync/errgroup](https://pkg.go.dev/golang.org/x/sync/errgroup).
+
+The thing I find surprising is that there still doesn't seem to be a language which has *only* structured concurrency.
+Everyone still insists on allowing unrestricted concurrency.
+That defeats the entire point of having structured concurrency at all.
+
+So, the second goal of ligma lang is to provide such a language.
+If you see a point where a coroutine is created, you can see a point where it exits.
+It might involve following around a few functions, but you can do it without understanding the exact types involved.
+
+
+## Types are the Core
+
+Types are safety.
+To one degree or another, type systems let us prove correctness of our software systems without ever needing to execute them.
+So, programmers *should* use types.
+I believe that things programmers *should* do should be *easy* to do.
+
+Let's say we want to define a type representing a 3D point with integer coordinates.
+Let's say we <s>want to</s> do so in Java.
+
+```
+public class Point3D {
+    private int x, y, z;
+
+    public Point3D(int x, int y, int z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+    }
+
+    public int getX() {
+        return this.x;
+    }
+
+    public void setX(int x) {
+        this.x = x;
+    }
+
+    // aaaaaaaaa
+}
+```
+
+How much syntax does it take to write this?
+How much *time* does it take?
+Defining even the simplest possible types is incredibly heavyweight here.
+The more precisely you want to model your domain in types – in *provable correctness* – the more heavily you're penalized.
+
+Now let's say that we want to write a type that expresses either an integer or a string.
+How do we write that in Java? ...Can we?
+
+The 3D point example is what we in tha bidness call a *product type*.
+The usual names for product types are structs, tuples, sometimes arrays, and so on.
+Roughly speaking, they're products because the number of possible values it has is the product of the number of possible values of its constituents.
+
+On the other hand, the "integer or string" example is a *coproduct type*.
+More familiar names might be unions (if you're a C or C++ programmer), enums (if you're a Rust programmer), sum types (if you're an ML programmer), or [#19412](https://go.dev/issue/19412) (if you feel a twinge of nostalgia when writing Go).
+They're "co-" products because they have a deep relationship with product types, together forming a special kind of mathematical structure.
+I'll usually refer to them as sum types, which are technically a particular variety of coproduct, but I think sufficient for my vision.
+
+I feel that products and sums are foundational to programming.
+Moreover, they are *equally fundamental*.
+There is no reason to elevate products above sums; they both arise frequently in domain modeling.
+F# comes very close to doing what I want here.
+
+Since both products and sums are equal, they should have similar cost to express in syntax.
+Since both are important, both should be easy to use.
+Defining a new type of either variety should come naturally.
+
+
+### Bonus: Type Syntax
+
+Given the importance of product and sum types, I've landed already on how I think the syntax for defining them should look.
+Here's an example.
+
+```
+​// .Null demonstrates a product type.
+type .Null(T: type) =
+    * .Value: T
+    * .Exists: bool
+
+​// .Maybe demonstrates a sum type.
+​// Note ** is the unit type.
+type .Maybe(T: type) =
+    / .None: **
+    / .Some: T
+
+​// .Pair demonstrates a product type with "numeric" column names, like a tuple.
+​// It works because the . character always introduces an identifier.
+type .Pair(Fst: type, Snd: type) =
+    * .0: Fst
+    * .1: Snd
+
+​// bool demonstrates a sum type with distinct variants of the same type.
+type bool = / false: ** / true: **
+```
+
+There are a number of details here that I'll save for another day to explain.
+The important thing is that both products and sums are expressed using lists with unary prefix operators to introduce each element.
+The product type syntax in EBNF is `{ '*' ident ':' Type }`.
+The sum type syntax is `{ '/' ident ':' Type }`.
+Both tremendously lightweight. Both equal in cost.
+
+
+### Polymorphism
+
+Note that the syntax example makes plenty of use of `type`-typed parameters.
+That part of the syntax is definitely not firm yet, but the intent of providing parametric polymorphism – functions and types that takes types as inputs to describe their values – certainly is.
+
+While it is possibly less firm of a goal, I'm curious how it would go to have *only* parametric polymorphism.
+It's very common for programming languages today to provide subtype polymorphism, roughly corresponding to what most programmers think of as inheritance or interface satisfaction, but I want to avoid it if possible.
+
+Rust mostly relies on parametric polymorphism with its trait system, but dyn traits provide an escape into subtype polymorphism.
+Haskell uses parametric and ad hoc polymorphism, or function overloading, without subtypes.
+For most of its life, Go provided only subtype polymorphism (interfaces).
+
+Regardless of whether subtype polymorphism makes it in, there will need to be some mechanism to express bounds or constraints on type parameters.
+Rust and (to an extent) Go use the same device for bounds as they do for subtypes.
+I think that's a strong insight.
+
+
+## There Are No Zero Cost Abstractions
+
+Rust and other languages are enamored with the concept of *zero cost abstractions*.
+These are abstractions, in the program modularization sense, which don't cause the executed program to increase in size or computation steps.
+
+Uniformly, "zero cost abstractions" *move* the cost to compilation time.
+Somehow, Rust programmers have concluded that a software developer's time spent waiting for their program to compile –
+perhaps before production deployment, perhaps before unit testing, perhaps before submitting a university assignment that is due in four minutes –
+is not a cost.
+
+I have many things that I want to do.
+There are very few things more valuable to me than my time.
+My compiler should not be consuming all of it.
+
+The real goal here is that the compiler should be fast.
+More precisely, the language should not get in the way of the compiler being fast.
+However, that *directly* implies that abstractions are not implemented through expensive static analysis.
+
+
+## And Other Consequences of Prioritizing Compiler Speed
+
+Zero cost abstractions aren't the only thing we're giving up.
+As fascinating as I find dependent types, having the compiler execute arbitrary user-supplied code is definitely a no-go.
+
+Other constraints for the sake of compiler speed are even more limiting.
+There probably should not be any mechanism for recursion in types.
+I'm not sure whether that excludes higher-kinded types in general.
+
+
+## No Reflection, No RTTI
+
+This goal is a bit less firm than most of the others, but I think it would be a big win for a type-oriented language.
+The idea is to minimize the cost of defining types by ensuring they are completely irrelevant to the final compiled program.
+That means there is no facility for reflection and not even any automatically generated type information.
+
+This is one of the main reasons for avoiding subtype polymorphism as mentioned above.
+While not necessarily crucial, I think most programmers who understand subtype polymorphism want to be able to specialize for particular dynamic types.
+But in order to do that, we need at least some sense of type identity.
+Type identities can become expensive if we are encouraging defining many types.
+
+Reflection enables some very powerful programs.
+In Go, it's the de facto approach to almost all serialization.
+Java and C# do fascinating things with reflection information.
+
+In other words, if we're going to forgo reflection, then we need powerful solutions to these problems.
+Encoding to JSON is a plenty common operation that programmers *should* do, so following the rule from before, it should be simple to do.
+Unforunately, I don't have many solid thoughts on this front yet.
+
+
+## System ABI
+
+Platform interop, especially with C code, matters.
+This is yet another thing that (regardless of anyone's feelings on the matter) is going to be common.
+So, it should be simple.
+
+Ideally, at least in a sense, we should be able to call C code without much more information than that it is C code.
+Rendering to a desktop window, or executing a Vulkan render pipeline, &c. really should not carry the cost that it does in languages like Go that define their own special ABIs.
+We want to isolate platform code in types, but not make it tremendously awkward to use it.
+
+
+## Featureful Standard Library
+
+While the Rust approach of providing a minimal core of features and allowing alternative implementations of the basics allows for some fascinating projects, I don't think it's a good ideal for *most* programming languages.
+That's really the realm of languages which seek to be used at the lowest level of systems programming.
+Not quite what I have in mind for ligma lang.
+
+I think Go has an almost perfect standard library.
+There are maybe a few things it has that it probably shouldn't, but it's tremendously powerful without being an unmanageable amount of code on its own.
+
+
+## Isolation
+
+The idea here is that if some piece of code `bocchi` depends on another piece of code `ryou`, then a change to only `bocchi` must never require us to recompile `ryou`.
+This seems like a straightforward idea, but it has surprisingly deep implications, especially while we avoid reflection and RTTI.
+
+
+## Dependency Management
+
+The very first claim was that ligma lang must address the developer experience holistically.
+Though perhaps furthest from the core of the language itself, dependency management is an important part of that.
+
+[SegFaultAX](https://github.com/SegFaultAX) is the main proponent of this goal, so I'll leave this as a summary of his wants:
+
+- Package identity must not be tied to location
+- Namespaces
+- Fast resolution
+- Cryptographically signed SBOMs
