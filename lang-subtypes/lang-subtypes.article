@@ -1,0 +1,112 @@
+# Subtype Polymorphism and RTTI
+Thoughts on a Programming Language
+23 Apr 2024
+Tags: programming language, types
+Summary: If we want to avoid RTTI, can we have subtype polymorphism?
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## Dynamic Dispatch
+
+I discussed the tension between subtype polymorphism and runtime type information (RTTI) in [the exposition](/articles/lang.html).
+While I'm interested in seeing the results of a language with only parametric polymorphism, I do have some thoughts on how to introduce subtyping, or something resembling it, without requiring RTTI.
+
+The first thing we want is *dynamic dispatch*, the ability to respond to a message to one static type which selects behavior depending an arbitrary dynamic type according to the construction of the value.
+Normally this is done by having the supertype include a vtable, a list of function pointers which the subtype fills out with its own implementations.
+That's easy to do without RTTI, and even to some extent without language support; see Zig.
+
+The second thing we want is *specialization*.
+Here that's basically just the ability to inspect the dynamic type of a supertype variable and write our own local code that varies with it, without requiring the subtype to provide the specialized behavior we want.
+This is much harder to do without RTTI, but it can often be important especially for performance reasons.
+
+That kind of specialization also violates *parametricity*, a property arising from viewing types as relations that allows us to derive proofs about code "for free."
+Parametricity is extremely powerful, but it requires some strong assumptions about the type system.
+Meeting those assumptions in ligma lang could have great advantages for testing and optimization.
+
+
+## Sealed Hierarchies; Or, Sum Types
+
+Scala, Kotlin, and soon even Java have the concept of *sealed hierarchies*.
+We provide the definition of some extensible type, but then provide a complete, closed list of all of its subtypes.
+We can't add any new subtypes without modifying the definition of the supertype.
+
+It's pretty obvious to see how we can implement a sealed hierarchy without RTTI.
+Rather than hold a descriptor of which dynamic type is in use, we only need to enumerate the types in the hierarchy and track the index into that enumeration.
+
+We can do a very similar thing using the sum types that we already want.
+It seems like all we really need is a rule like this:
+
+> A property shared by every variant of a sum type is promoted to the sum type itself and dispatches dynamically.
+
+Here I'm using "property" to refer to any named thing on a type, be it a field or a method, along with the type of the result it produces.
+If it's the same on every variant, then we can do dynamic dispatch trivially.
+While I don't yet have ideas for method syntax, we can look at some examples with product type fields.
+
+```
+​// .PromotedX has a promoted accessor .x of type int.
+​// Every variant is a product type with that field.
+type .PromotedX =
+	/ .1: (* .x: int)
+	/ .2: (* .x: int, * .y: int)
+
+​// .NotPromotedX has no promoted accessors.
+​// The types of the .x fields disagree between variants.
+type .NotPromotedX =
+	/ .1: (* .x: int)
+	/ .2: (* .x: string)
+
+​// .NothingToPromote has no promoted accessors.
+​// There are no properties with the same name.
+type .NothingToPromote =
+	/ .1: (* .x: int)
+	/ .2: (* .y: int)
+```
+
+And again, we only need to know an index into a list to implement this.
+No RTTI needed. Not even type identities.
+
+With this approach, we even keep parametricity while enabling specialization.
+We aren't really specializing on a type per se, but rather specializing on a variant of a type.
+
+This idea is like backward nominal subtyping.
+Instead of a bunch of types declaring themselves to be subtypes of the supertype, we have a type declaring itself to be the supertype of a bunch of subtypes.
+
+Well, strictly speaking, this isn't subtyping at all.
+We have to explicitly construct the sum-typed value using the variant of our choice, rather than directly using the subtype in place of the supertype.
+For practical purposes, I think it's close enough.
+
+Speaking of practical purposes, does this rule really provide what we want out of subtype polymorphism?
+It seems obviously fine for mocking, as long as we can reasonably provide a mock of every property of the real implementation.
+Strategy pattern also seems like it would work fine here.
+
+But obviously, that isn't an exhaustive list of the places subtype polymorphism is useful.
+I'm curious where it falls short.
+If there are places where sum types aren't good enough, then maybe we can take the approach Zig uses:
+Make the programmer implement their own vtables.
+As long as we have product types and closures, it's viable.
+
+
+## Dual
+
+It's vaguely interesting to think about the dual of the sum type rule, i.e. the rule we'd apply to product types instead.
+It would go something like:
+
+> Any property on exactly one field of a product type is promoted to the product type itself.
+
+I think this is probably a bad rule, although it may show up again in a later note.
+Maybe it would be more useful – and less bad – than I think.
+
+
+## Still Lacking
+
+This approach definitely doesn't actually meet our needs, but ironically, the problem doesn't have anything to do with subtype polymorphism itself.
+
+I mentioned in the exposition that both Rust and Go use the same construct to express both subtype polymorphism and bounds in parametric polymorphism.
+Rust uses traits and dyn traits; Go uses interfaces with generalizations for generics.
+I think that's a good approach.
+
+If our subtype polymorphism approach is "don't," then we need a different way to express bounds.
+I still don't have any idea of how that should look.
