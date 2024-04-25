@@ -1,0 +1,95 @@
+# The Importance of Maybe
+Thoughts on a Programming Language
+24 Apr 2024
+Tags: programming language, types
+Summary: The Maybe or Option type is too important to relegate to the same syntax as other type constructors.
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## 1 + T
+
+The Maybe or Option type is the simplest parametric sum type.
+For any given type, it adds exactly one additional value.
+Hence, `1 + T` for some arbitrary type T.
+
+The usual interpretation is that there is either `Some` value of type T, or `None`; or `Just` a value or `Nothing`.
+The particular names depend on your heritage.
+I learned Haskell before Rust or any ML, so I tend to prefer the Maybe/Just/Nothing trio.
+(But I've also written more Rust than Haskell, so I sometimes switch to Option/Some/None, or annoyingly mix Just and None. Oh well. All of it means the same thing.)
+
+Using the sum type (and unit type) syntax we established in [the exposition](/articles/lang.html#4.1.), we can define ligma lang's Maybe type roughly as follows:
+
+```
+type .Maybe(T: type) =
+	/ .Nothing: **
+	/ .Some: T
+```
+
+But I think this approach is a mistake.
+The idea of "possibly absent value" is incredibly prevalent in computing.
+It's something that programmers *should* do very often.
+So, it should be *very easy* to do.
+
+The syntax I like happens to be almost exactly what Zig has.
+For any type `T`, we can create a `Maybe T` by writing `?T`.
+A single character as a prefix operator for arguably the most important type constructor.
+
+There are some things I'd like `?T` to do that Zig doesn't provide, though.
+A very important insight from the land of functional programming is that `Maybe T` is a *monad*.
+It's a wrapper around some context that allows us to perform computations that change with the context.
+
+In essentially all functional programming languages, one can *bind* functions that take a T and return a U onto a `Maybe T`.
+If the Maybe is `Some x`, then `x` goes into the function as an input, and the result of type U is *lifted* back into the world of Maybes to become a `Maybe U`.
+If it's `Nothing` instead, then the function is ignored and the result remains `Nothing`.
+
+I want that binding capability for ligma lang, but again, it's something too important not to have extremely simple syntax.
+Zig wants you to explicitly inspect the optional using `if (m) |someValue|` (or correspondingly `while`).
+Haskell lets you use `do` syntax, which gives the programmer a "procedural" sublanguage that is really just repeated binding on each result.
+
+What I want in ligma lang is this rule:
+
+> If `T` has a property `x` of type `U`, then `?T` has a property `x` of type `?U`.
+
+That is, I want monadic binding on the optional type to be implicit.
+As usual, I'm using "property" to mean "field or method" (assuming we have methods).
+In the latter case, this would also imply that optional closures bind application as well.
+
+I still haven't actually landed on syntax for `Just x` and `Nothing`.
+Those terms I think are still a bit long-winded for how frequent they should be.
+A cute idea would be to write `<x>` and `><`.
+Maybe (hehe) that's a bit too unusual, but I'll roll with it for now.
+
+There also should be some sense of narrowing, i.e. the ability to recover the `x` in `<x>` in bound code.
+In most languages with Maybe or Option, you'd use pattern matching to do that.
+No specific ideas for ligma lang yet, considering I'm not even sure what functions should look like.
+
+
+## 1 + 1
+
+Now for a much less certain idea.
+
+The unit type, which in ligma lang we write as `**`, has exactly one value.
+(Think "unit" as in "unity".)
+The Maybe type constructor takes an arbitrary type and adds exactly one additional value to it.
+That means that `?**`, the optional unit type, has exactly two values.
+
+There's another extremely important type that has exactly two values: bool, being either true or false.
+That means we could *define* `type bool = ?**`, along with making `false` mean `(>< as ?**)` (or whatever syntax) and `true` mean `<**>`.
+
+In combination with implicit binding of function application, we get an interesting property from using this definition.
+Applying a function to `true` executes that function, and applying it to `false` doesn't.
+We've uncovered lambda calculus, kind of!
+We do need some syntax for the "else" part of conditional execution, though.
+
+Note that defining bool this way implies that we need a special definition of equality for `?**` separate from the implicitly promoted equality on `**`.
+Otherwise we'd have `false == false` evaluate to `false` and `true == true` evaluate to `<true>`.
+And the fact that we need special equality for `?**` suggests that we should have it for `?T` wherever `T` has equality.
+And the fact that we should have it for `?T` suggests that if we have type constructors then we should have the ability to do it for any type constructor.
+And now we're basically at type classes.
+
+I'm not sure whether ligma lang will have general type constructors.
+(I strongly want to avoid allowing recursion in types in consideration of compilation speed, but my understanding is that System F<sub>ω</sub> is fine in that regard.)
+This will be a topic to revisit when that decision is made.

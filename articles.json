@@ -23,7 +23,8 @@
 			"section": "Thoughts on a Programming Language",
 			"articles": [
 				"lang",
-				"lang-subtypes"
+				"lang-subtypes",
+				"lang-maybe"
 			]
 		},
 		{
