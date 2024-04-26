@@ -1,0 +1,80 @@
+# Statically Typed Dynamic Scope
+Thoughts on a Programming Language
+25 Apr 2024
+Tags: programming language, types
+Summary: Dependency injection SOLVED?
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## Dynamic Scope
+
+Dynamic scope means a function is allowed to access local variables of its callers.
+Sounds only very terrifying, doesn't it?
+
+Well, let's walk it back a bit.
+Dynamic scope can also require those callers to have provided the variables the callee can access.
+The WithValue parts of Go's [context.Context](https://pkg.go.dev/context#WithValue) are an example of this.
+Vue and presumably other frontend frameworks have [provide and inject](https://vuejs.org/guide/components/provide-inject.html).
+That makes it somewhat more reasonable.
+
+I think dynamic scope could be even better, though.
+Ligma lang can make it statically typed.
+
+For us to pull this off, a function's type must indicate the transitive closure of dynamically scoped fields it will use.
+That means if `bocchi` depends on `ryou` and we change `ryou` to start using dynamically scoped `pacifica`, then `bocchi`'s type also changes to reflect that.
+Making this be inferred rather than explicitly typed by the programmer is crucial.
+
+This idea is a kind of *effect system*, which is like a parallel to a type system for describing visible changes to the outside world incurred by a function.
+Recognizing this fact means that we can apply research on effect systems to understand what we can do.
+
+It so happens that [this paper on Koka's row-polymorphic effects](https://arxiv.org/pdf/1406.2061.pdf) describes almost exactly what we want for dynamic scope.
+
+Although, unlike that paper, we do require the effects to be ordered by insertion in addition to being multiple.
+That lets `bocchi` replace the value of `pacifica` before it calls `ryou` without affecting `kita`'s call to `ryou`.
+When a function adds to dynamic scope, it always pops off the most recent entry for that field when it returns.
+
+In part as a result of that change, we also don't need closed rows.
+There's no reason to allow encoding "this function must not be provided a `bocchi` in its dynamic scope."
+If a function doesn't want `bocchi`, it simply doesn't read `bocchi`.
+If we want to replace the value of `bocchi` for another callee, then we just do that.
+
+Recognizing dynamic scope as an effect system also gives us some interesting powers.
+If `bocchi`'s callees (transitively) require `pacifica`, and `bocchi` always provides `pacifica`, then `bocchi` *eliminates* the "requires `pacifica` effect.
+The requirement disappears from `bocchi`'s type.
+Effect inference can handle that for us automatically.
+
+It also gives us some guidance about closures.
+If `bocchi` takes `ryou` as an argument, then `bocchi` needs to add the dynamic scope required by `ryou` to its own (except possibly those fields it eliminates, as above).
+Since effects are captured in `bocchi`'s type, that means the type of `bocchi` depends on the dynamic scope of any closure it's passed.
+Hence, polymorphism of the row variety.
+
+
+## And the Expression Problem
+
+One of our design goals is to ensure that if `bocchi` depends on `ryou`, then a change to `ryou` cannot force us to recompile `bocchi`.
+Statically typed dynamic scope has an interesting interaction with that goal.
+
+We've already established the characteristic that `bocchi`'s type (or more precisely, the type of an instantiation of `bocchi`) depends on the type of `ryou`, because it needs the transitive closure of its dependencies' dynamic scope.
+
+However, depending on the implementation of dynamic scope, we may not need to recompile `bocchi` even despite its change in type.
+As long as `ryou` knows how to obtain elements of dynamic scope without having to be supplied them directly by `bocchi`, we don't violate the expression problem by providing it.
+Neat.
+
+
+## And Structured Concurrency
+
+Given that structured concurrency lets us assign a type to collections of concurrent operations, we might wonder whether there's an interaction between it and dynamic scope.
+For example, what happens when `bocchi` is given a concurrency lifetime to add new coroutines to, but injects a new `pacifica` before spawning `ryou` in that lifetime?
+
+This, too, is fine.
+There must be a reference to `pacifica` in the dynamic scope *somewhere*.
+
+Either `bocchi` provides it for the first time, in which case it eliminates the effect, or `bocchi` requires it, so the function that adds `bocchi` to the lifetime in the first place also either provides or requires it.
+The effect propagates exactly as far back as it needs to, even if concurrency is involved.
+It might go as far back to the creation of the concurrent lifetime, or further, but it's allowed to do that.
+In a sense, that's the point of structured concurrency.
+
+Though, practically, at least with how I'm imagining the implementation, there might be a performance penalty with that situation.

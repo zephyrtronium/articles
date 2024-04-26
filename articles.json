@@ -24,7 +24,8 @@
 			"articles": [
 				"lang",
 				"lang-subtypes",
-				"lang-maybe"
+				"lang-maybe",
+				"lang-dynamic-scope"
 			]
 		},
 		{
