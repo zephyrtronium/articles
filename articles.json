@@ -25,7 +25,8 @@
 				"lang",
 				"lang-subtypes",
 				"lang-maybe",
-				"lang-dynamic-scope"
+				"lang-dynamic-scope",
+				"lang-encapsulation"
 			]
 		},
 		{

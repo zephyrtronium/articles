@@ -1,0 +1,82 @@
+# Encapsulation and Selection
+Thoughts on a Programming Language
+26 Apr 2024
+Tags: programming language, types
+Summary: Not just for OOP.
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## It Matters
+
+First of all, yes.
+
+Despite being touted as one of the pillars of object-oriented programming, encapsulation is a very deep and important concept in programming languages in general.
+In particular, it's crucial to the idea of making illegal states unrepresentable.
+You can't prevent the construction of illegal states if anyone can access any constructor.
+(At least, not without dependent types.)
+
+So, ligma lang needs a concept of encapsulation.
+But there are a few options for how to actually do it.
+
+
+## Kinds of Encapsulation
+
+[Consider C#](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/access-modifiers), which has:
+- `file`, only available in the actual file of the declaration.
+- `private`, available within the class.
+- `protected`, for properties available to subclasses.
+- `private protected`, like `protected` but only for subclasses in the same assembly (roughly what Rust calls a crate or what Go calls a module).
+- `internal`, to make something available to everything in the same assembly.
+- `protected internal`, the union of `protected` and `internal`.
+- `public`, available everywhere.
+
+F# has a [much smaller list](https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/access-control):
+- `private` is private to a type or module.
+- `internal` is internal to an assembly.
+- `public` is visible everywhere. Notably, this is the default!
+
+[Contrast with Rust](https://doc.rust-lang.org/reference/visibility-and-privacy.html):
+- Unspecified, making the item available only in the same module and any of its descendents
+- `pub`, available everywhere.
+
+And [yet another consideration is Go](https://go.dev/tour/basics/3):
+- Identifiers not starting with a capital letter – a character in Unicode class Lu – are unexported, visible only in the same package.
+- Those that do are exported, visible anywhere.
+
+I'm not sure which of these approaches ligma lang should use.
+But I'm reasonably confident based on my experience with Rust and Go that the two-level "visible everywhere" or "visible in this (relatively large) scope" is enough encapsulation without requiring too much cognition.
+
+
+## Syntax
+
+One thing I am certain about is that Go's approach of using capitalization to indicate encapsulation is… misguided.
+Anglocentric.
+There are many languages that don't *have* capitalization.
+
+For example, I know that Go is popular in China.
+If a Chinese programmer wants to use their native language for names, then they have to prefix exported identifiers with an X or another Latin letter, like `type X世界 struct {}`.
+It's a pretty miserable DX if you don't speak one of the languages of Europe.
+
+That said, I do think that making private the default and public not much harder is a good design.
+Having a `pub` keyword is probably not too much, but I still think we can do better.
+
+Here's the idea I have:
+
+> Except when part of a floating point literal, the `.` character is always the first character of an exported identifier.
+> All other identifiers are unexported.
+
+If module `kessoku` contains definitions of `.bocchi` and `ryou`, then `.bocchi` is visible outside `kessoku` and `ryou` isn't.
+Similar for fields and methods of types.
+
+Of course, this leaves the question of how to *access* these members, if `.` is reserved for identifiers.
+Here we can fall back to how it already generally works in functional programming.
+Just put them adjacent.
+So, `kessoku ryou` accesses the `ryou` member of `kessoku`, and `kessoku.bocchi` – really `kessoku .bocchi` – accesses the `.bocchi` member.
+
+This also ties in to [our "tuple" syntax](/articles/lang.html#4.1.).
+Since `.` is the first character of an identifier, rather than being an operator lexed separately, we can put bare numbers after it and the result is still an identifier per usual identifier rules.
+`.0` and `.81` are just names.
+Tuples are just structs that use names like these.
