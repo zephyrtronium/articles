@@ -1,0 +1,85 @@
+# Which Paradigm?
+Thoughts on a Programming Language
+27 Apr 2024
+Tags: programming language, types
+Summary: Or, Rust is not functional programming, no matter how many iterators you .map().filter().collect().
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## Surprise
+
+I'm not actually decided on what programming paradigm ligma lang should be.
+
+I like functional programming, because I like writing proofs, solving puzzles, and generalizing things.
+It's certainly less accessible to most developers than procedural programming, though.
+Ligma lang is "the language I wish I were writing," and me writing it is predicated on it being used.
+
+So, I think that ligma lang at least has loops and first-class mutability.
+Although, this brings me to a tangent that I think about often.
+
+
+## Functional Programming is a Paradigm
+
+There seems to be a prevalent notion that functional programming means programming where closures exist and probably everything is immutable.
+You use functions like map, reduce, and filter over lists and assume that the compiler will optimize everything how you want.
+Hence, languages like Rust and JavaScript which have map, reduce, and filter have "functional features."
+
+To me, this is like saying, "Chinese is like English except you write Hanzi instead of Latin letters, and sometimes Chinese even borrows from English."
+It's entirely missing the point.
+
+Functional programming is a *paradigm*.
+Haskell is as different from Rust as general relativity is from quantum physics.
+It isn't just a different *approach* to programming, it's a different *foundation* to programming.
+
+Moderately educated programmers generally seem to be aware that functional programming inherits from lambda calculus.
+What they don't usually seem to be aware of is that in (untyped or simply typed) lambda calculus, there is *nothing* that is not a function.
+
+`true` is the function `true(x) ↦ (g(y) ↦ x)`, i.e. "true takes `x` and evaluates to a function which takes `y` and returns `x`."
+(The symbol ↦ is read "maps to." Think "map" roughly as in "hash map" here.)
+Note that the `x` and `y` that `true` and its computed closure take *are also functions*.
+
+3 is the function `3(f) ↦ (g(x) ↦ f(f(f(x))))`, or "3 takes an `f` and evaluates to a new function that composes `f` three times."
+I could specify that `f` has to be a function in order to be so composed, but there's nothing else it could be.
+Lambda calculus *only* has functions.
+
+Granted, most functional programming languages are derived from extensions to simply typed lambda calculus that add ideas which cannot be described purely as functions.
+I think it's more precise to describe functional programming languages as those [founded on systems of logic](https://www.youtube.com/watch?v=IOiZatlZtGU).
+
+When I think about functional programming, I think about lambda calculus, logic, and category theory.
+I don't think about map, reduce, and filter.
+Those are just structures that arise when considering computation from this foundation.
+
+I like to call the "everything is immutable, but not everything is purely a logical structure" approach of languages like Erlang, Elixir, or Gleam *immutable programming*.
+They share with functional programming the characteristic that everything is immutable, but that's about where the similarities end.
+
+
+## Immutable Programming is Good
+
+Even given all my whining in the previous section, I still think immutable programming is a good idea.
+In fact, I'd rather make ligma lang immutable rather than truly functional.
+Frankly, in a world dominated by OOPlets, functional programming is… inaccessible.
+
+Compared to procedural or object-oriented programming, immutable programming can help to reduce complexity in software systems.
+If you believe [Moseley and Marks](https://curtclifton.net/papers/MoseleyMarks06a.pdf), this follows from its property of isolating accidental state.
+
+It's still *possible* to encode "mutable memory" by passing a collection to every function, replacing elements of the collection as needed.
+Doing that generally takes much more effort compared to mutable variables, though.
+This is one of ligma lang's design principles: since it's something programmers *shouldn't* do, it should be *harder* to do.
+
+
+## Which Paradigm, Though?
+
+I still feel ligma lang should have first-class mutability.
+Sometimes mutable variables are crucial to performance optimization, in particular because it semantically maps well to how actual hardware works.
+It should be harder than staying with immutable values, though, just like it is in Rust with the `mut` keyword.
+
+Totally eschewing mutability would hypothetically allow us to target BEAM, which would be nice for a few reasons.
+It's a very impressive platform with a featureful ecosystem, and its concurrency support would probably simplify the runtime implementation of ligma lang's structured concurrency.
+
+But, I think we can still achieve most of the advantages of immutable programming using just types, without precluding the kind of high-performance (or sometimes just interoperable-with-C) code that really makes languages suited to authoring world-class services.
+And luckily, between my experience keeping up to date with Go's compiler and runtime and my fairly systems-oriented formal education, I do have a good idea of how to implement the things I want.
+
+So, I think ligma lang is a strongly typed procedural language that features closures.
