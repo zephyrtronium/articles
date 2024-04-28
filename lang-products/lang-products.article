@@ -1,0 +1,46 @@
+# Product Expressions
+Thoughts on a Programming Language
+28 Apr 2024
+Tags: programming language, types
+Summary: Unlocking hidden powers of structs and tuples.
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## I Guess We Do Need Syntax
+
+We established product type (i.e. struct and tuple) syntax quite a few thoughts ago [in the exposition](/articles/lang.html#4.1.).
+Let's get around to coming up with a syntax for expressions of product types.
+
+This is actually a bit more involved than for most other programming languages.
+We have both "struct" and "tuple" types, but we don't distinguish them syntactically – a tuple is just a struct with field names like `.0`, `.1`, &c.
+
+However, we'd still like to be able to construct product values without having to name every field.
+The usual `(bocchi, ryou)` syntax is probably what we want for that.
+Simply assign each field in named order.
+Then we can do a less-usual extension of that for struct-y syntax, like `(.0 = bocchi, .1 = ryou)`.
+
+What about products with fields that are inaccessible due to encapsulation?
+I think it's preferable to completely disallow the tuple-like syntax there, rather than allowing unexported names to be filled in where they can be inferred.
+
+If we take these spellings for struct and tuple types, then we can easily write function application as `f x` in the usual functional programming way.
+Then if we have inference for tuple literals, we can also write `f(bocchi, ryou)` to make function application look like the usual *procedural* way as well.
+
+We also get named arguments for free.
+`f(bocchi, ryou)` would be identical to `f(.1 = ryou, .0 = bocchi)`, or if `f : (* .x: U * .y: V) -> W` instead then we can write `f(.y = ryou, .x = bocchi)`.
+
+Combined with the visibility rule, this does imply that functions generally want to use exported names for their arguments.
+It's unusual among programming languages for this to matter.
+On the other hand, it implies we have *unexported* arguments, which prevent calling a function unless those arguments can be supplied some other way.
+That idea is pretty intriguing.
+
+An option we can consider to lean into that is to allow intersecting product types.
+If `x: (*.0: U)` and `y : V`, we allow writing, say, `let z = x & (.1 = y)` to create `z : (*.0: U *.1: V)`.
+That lets us pass around a tuple representing "partially applied" and possibly unexported arguments to a function, then intersect with a struct of the remaining arguments to finally call it.
+
+Hypothetically, we could even implement closures that way.
+Just make them be a pair containing the function to call and its captured variables.
+Not sure what that actually buys us, though.
+Closures should be easy to write and use, so we'd need syntactic support for treating them this way anyway.
