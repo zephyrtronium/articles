@@ -18,7 +18,7 @@ I'm Branden. Business applications engineer with a mathematics fixation. Formerl
 	<main>{{ range . }}
 		<h3>{{ .Section }}</h3>
 		<ul>{{ range .Articles }}
-			<li><a href="{{ .URL }}">{{ .Title }}</a> ({{ .Time.Format "_2 Jan 2006" }}) &mdash; {{ .Summary }}</li>{{ end }}
+			<li><a href="{{ .URL }}">{{ .Title }}</a> ({{ .Time.Format "2 Jan 2006" }}) &mdash; {{ .Summary }}</li>{{ end }}
 		</ul>
 	{{ end }}</main>
 	{{ template "footer" }}
