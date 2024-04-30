@@ -1,0 +1,70 @@
+# Pieces of Programs
+Thoughts on a Programming Language
+29 Apr 2024
+Tags: programming language, types
+Summary: On the mechanics of program modularization.
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## Modules, or Packages, or Crates, or …
+
+Rust calls it a module; a crate is a collection of modules.
+F# calls it a module; an assembly is a collection of modules.
+Python calls it a module; a package is a collection of modules.
+Go calls it a package; a module is a collection of packages.
+
+?????
+
+So yeah, I have been thinking about the fundamental unit of source code organization for ligma lang.
+In particular, I have been thinking about two mutually exclusive ideas with how *scope* works in the context of this unit of organization.
+
+In Go, with some exceptions, packages are in one-to-one correspondence with directories.
+All files in a package can reference all definitions in the package, regardless of where they are.
+This includes even defining methods on types in other files, or in the same file but before the type is defined.
+And in practice, that actually matters: code generators can be very simple, with no need to understand syntax at all.
+
+F# does almost the opposite.
+Modules are individual files (except they can contain nested modules), and you can't make forward references.
+That means declaration order matters strongly, and you have to use special tricks to create mutually recursive types.
+It also means that a reader can easily find the source of any declaration (if we ignore `AutoOpen`).
+Type checking is also much simpler under this model.
+
+
+## And Us?
+
+I like both of those approaches.
+But, like I said, they're mutually exclusive.
+
+Maybe we can think of a compromise.
+We could try the F# approach plus a rule like "modules in the same directory are implicitly imported."
+You'd still have to qualify their names, but we keep the lexical precedence property.
+
+I think we'd also want "modules in the same directory can access each others' [unexported identifiers](/articles/lang-encapsulation.html).
+E.g., if bocchi.lig and ryou.lig are in the same directoyr, and ryou.lig defines some unexported identifier `nijika`, then bocchi.lig can write `ryou nijika` to access it.
+And this is without an explicit import of `ryou`.
+
+This seems a bit verbose, but maybe it's ok.
+
+As for mutually recursive definitions, there are a few options.
+Like F#, we could define a keyword that specifically creates a mutually recursive scope.
+Honestly, that feels unpleasantly ad hoc to me.
+
+Another option is to simply allow definitions to refer to each other in the same module.
+We always type check in multiple passes.
+Perhaps a bit more complicated to implement, and we lose strict lexical precedence, but we can at least see when something is defined in the same file.
+
+An option in the opposite direction is to do nothing here, require strict lexical precedence and also provide nothing for mutual recursion.
+When you need it, you can simulate it by adding parameters, of either the type or formal variety.
+I think that's probably a bit too constricting to work with, but it's plausible.
+
+Honestly, the Go approach holds a lot of draw for me.
+It's very easy to *just start writing code*.
+Even though I've felt the penalties of unrestricted reference within a package many times while reading other peoples' code online, I find it very pleasant to actually do work with.
+
+But I think something along the lines of the F# approach is probably *better*.
+I'm still not certain which decision is more correcter.
+
+At the very least, I am convinced that the correct terminology for ligma lang is that a *package* contains one or more *modules*.
