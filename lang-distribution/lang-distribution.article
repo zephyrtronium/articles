@@ -1,0 +1,83 @@
+# Distributing Packages
+Thoughts on a Programming Language
+30 Apr 2024
+Tags: programming language, types
+Summary: I've come up with the most sane and sustainable way to distribute packages.
+
+Branden J Brown
+Business Applications Engineer, Velocigo
+https://gitlab.com/zephyrtronium/
+
+
+## Requirements
+
+Let's revisit our [list of wants](/articles/lang.html#11.) for dependency management:
+
+- Package identity must not be tied to location
+- Namespaces
+- Fast resolution
+- Cryptographically signed SBOMs
+
+After thinking about it, I do have a couple items of my own to add to this list:
+
+- Version updates, including new major versions, are easily discoverable
+- *Forks* are easily discoverable
+- Repository independence: Git is not the only version control system
+
+I want to explicitly add version updates because I think they are a direct technical challenge with the obvious ways to meet SegFault's wishlist.
+And while Git is good, it probably won't be the best option forever.
+(I still mean to try [jujutsu](https://github.com/martinvonz/jj) at some point.)
+
+Thinking about how to meet these requirements gave me a really very idea.
+It is definitely not thoroughly deranged, and I can be trusted with your version updates.
+
+What if we put versions on a blockchain?
+
+To be clear, what I am suggesting has **absolutely nothing to do with cryptocurrency**.
+Blockchain is an algorithm.
+It's a technical solution that matches up well with certain (very specific) technical problems.
+(A Git repository is a kind of blockchain!)
+The [astonishing harm that comes from cryptocurrency](https://web3isgoinggreat.com/) is associated with insistence on using a technical solution for *social* problems.
+
+So, why blockchain here?
+Publishing version updates to a blockchain means we never need any central hosting solution.
+Hypothetically, all you need is an internet connection and a cryptographic identity to publish – no one needs to know who you are.
+Both finding source locations and checking for updates amount to reductions of the blockchain.
+Publishing may be slow, but resolving should be fast once the blockchain is downloaded.
+It's easy to choose a representation for nodes that encodes all the other properties we want, as well.
+
+
+## Seriously??
+
+Ok, you got me.
+I think finding potential applications of blockchain that aren't horrifically toxic is fun and interesting.
+Is it actually a reasonable solution to versioning and dependency management?
+Probably not.
+
+For one thing, consensus is hard.
+Any incentive-based consensus algorithm, well, incentivizes people to abuse it.
+Probably the most viable approach for what we'd want would be proof-of-authority, which as I understand it amounts to giving a list of who is allowed to append to the blockchain.
+Hard to call that decentralized.
+
+And if we don't choose PoA, then whatever "proof" we require to publish can presumably be offered in vast quantities by anyone with enough money.
+As just a lil guy, it's almost impossible to prevent supply chain attacks that way.
+
+Furthermore, if we want to make a reasonable effort to enforce the blockchain's use for package versioning, then we likely need every potential verifier to download every potential published version of every package.
+That could become a huge amount of traffic.
+SourceHut once got to the verge of [blocking the Go module proxy](https://sourcehut.org/blog/2023-01-09-gomodulemirror/) over similar concerns.
+
+So, the blockchain is out.
+As it almost always should be.
+
+Probably a central service in the style of crates.io, npm, &c. will remain the way to go.
+I'd like to find a different solution, but it's hard to imagine one that meets all our goals without tying package identity to package location.
+
+----
+
+## An aside
+
+As much as I've been enjoying writing Thoughts on a Programming Language, I find myself in a position where I need to prepare for getting a new job.
+I'm still converting thoughts I've already written to weblog format, but each one takes multiple hours that I should be spending on practicing my coding challenge pattern recognition.
+
+So, ligma lang is going to have to sit on the shelf for a bit.
+I will still try to write thoughts daily, since this is also useful communication practice, but I won't try to publish very often.
