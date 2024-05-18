@@ -1,0 +1,365 @@
+# The Koka Experience
+Koka
+17 May 2024
+Tags: koka
+Summary: An experience report on the Koka programming language.
+
+Branden J Brown
+Software Engineer
+https://gitlab.com/zephyrtronium/
+
+
+## Background
+
+After repeatedly discovering that my Good Ideas for [the programming language I wish I were writing](/articles/lang.html) were actually reinventions of things that Koka is already doing, I decided to try using it for a bit.
+
+[Koka](https://koka-lang.github.io/koka/doc/index.html) is a functional programming language designed around *effects*, a type kind (in the formal sense of "kind") which allows functions to describe the kinds of side effects they have.
+Despite being functional, mutability is a first-class concept; functions that write to or read from variables they're given have these operations mentioned in their effects.
+Other effects might describe functions which might not terminate, or functions that can raise exceptions, or even programmer-defined nonlinear control flow.
+
+I have some prior experience with older functional programming languages, but I'm definitely not an expert.
+I've never used Haskell "in production," and while I do try to read some type theory research, most of it is still beyond me.
+Despite that, Koka has been surprisingly accessible to me as a primarily Go programmer.
+
+That said, Koka is very much an in-progress research language.
+I've encountered a lot of questions that I didn't find answered in documentation, and certainly not in the Koka book.
+(Probably more than a few are answered, just not where I've looked so far.)
+I'm at the point where I want to start collecting those questions as a guide to places that could be improved.
+
+This report will equally cover experiences with the language itself and with the tooling installed in VS Code by the Koka extension, including the language server.
+I'll leave sorting out the details of what applies to which to those more expert.
+
+For context, the things I've tried writing so far have been:
+- An interpreter for the Io programming language.
+	I made almost no progress on this one, for a number of reasons.
+- A JSON parser using the std/text/parse parser combinator library.
+	This one I mostly finished.
+	It was while trying to answer questions about this that I found the [koka-community](https://github.com/koka-community) GitHub organization, which helped me find answers to many other questions.
+- A generic hashmap, since I couldn't find one at the time (since spotted in a [koka-community/std PR](https://github.com/koka-community/std/pull/3)) and it's a crucial component of an Io interpreter.
+	Finished aside from some important helpers.
+
+The only materials I used to learn Koka before writing code were [the book](https://koka-lang.github.io/koka/doc/book.html) and the first half or so of each of the [row-polymorphic effects](https://arxiv.org/pdf/1406.2061) and [Perceus](https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf) papers.
+
+
+## Syntax
+
+
+### Inconvenciences
+
+VS Code's syntax highlighting always treats `<` and `>` as brackets, even when they're part of `<-` and `->` tokens.
+That leaves them almost always mismatched, which is filling my hashmap module with red marks, even though it has no errors.
+
+Having both `val` and `value` as keywords makes writing a generic container a bit awkward.
+(Maybe `value` isn't actually a reserved word, though?)
+Even though Koka lets me use `v` as both a type name and a variable name, I still prefer to keep them separate.
+
+Related: it is *very cool* that type and variable namespaces are separated syntactically.
+Also very cool that type parameters can be implicit as a result.
+
+
+### `abstract`
+
+What exactly does the `abstract` annotation on types do?
+I saw a description of it… somewhere, but now I can't find it.
+The grammar indicates that it's mutually exclusive with the `pub` visibility modifier, so is it also a visibility modifier?
+I seem to recall that it has something to do with supressing automatically generated functions relating to a type definition.
+
+
+### Killing the parser
+
+I tried writing a nested loop over a vector of lists of pairs as the following:
+
+```
+pub fun foreach(hm: hmap<k, v>, action: (k, v) -> e ()): e ()
+  with bu <- hm.buckets.foreach
+  with (key, el) <- bu.foreach
+  action(key, el)
+```
+
+Apparently this was explosive.
+The language server stopped reporting any errors at all, even obvious syntax errors.
+If I load the module in the interpreter like this, I get a stack trace that doesn't mention my code anywhere:
+
+```
+parse   : c:/Users/zephyr/Documents/mykk/hmap/hmap.kk
+check   : hmap
+^
+hmap(1, 1): internal error: Syntax.Parse.parameter: unexpected function expression in parameter match transform
+CallStack (from HasCallStack):
+  error, called at src\Common\Failure.hs:46:12 in koka-3.1.1-4KWDIhobz6XJ1Dhpw9I5uN:Common.Failure
+  raise, called at src\Common\Failure.hs:32:5 in koka-3.1.1-4KWDIhobz6XJ1Dhpw9I5uN:Common.Failure
+  failure, called at src\Syntax\Parse.hs:1443:37 in koka-3.1.1-4KWDIhobz6XJ1Dhpw9I5uN:Syntax.Parse
+```
+
+It seems that the problem is that patterns can't appear to the left of `<-`.
+That's fine by itself.
+The experiential complaint is that the language server silently went dark as a result.
+It'd be nice if it could at least inform me that it couldn't parse the module due to an internal error, ideally with a line number.
+
+
+### Caret
+
+A number of functions in std have parameters with names prefixed by `^`.
+In at least one case, it's composed with `?` for an implicit parameter.
+
+I have no idea what `^` means.
+Sometimes the documentation on functions bearing it contains what appear to be error messages, though!
+
+More broadly, there seems to be a small syntax for doc comments.
+Info on that would be great.
+And also info on the documentation system in general; I actually quite like the std docs site.
+
+
+## Semantics
+
+
+### Partial type checking
+
+Probably the single thing that would most improve my experience with Koka would be partial type checking in the language server.
+As it is, type information in VS Code reflects the last time your module was entirely free of errors.
+That means that, in general, you can't check the types of values you're working with while writing a new function.
+
+
+### Corecursion
+
+As I mentioned at the start, I'm not strongly versed in type theory.
+I don't really understand what a coinductive type is.
+The only example I have ever seen is "the type of possibly infinite streams," and Koka continues that trend.
+
+What else can a cotype represent?
+I believe inductive types interact nicely with divergence checking; how do cotypes interact with effect inference?
+Why would I choose cotypes over fully recursive types?
+
+
+### Divergence checking
+
+I'm not sure where to find a formal description of the divergence checking algorithm.
+Since totality makes the most general API, understanding the decisions that can prevent it can lead to better designs.
+
+If I were to guess at the div inference algorithm now, it would be something like,
+"A recursive function is divergent unless at least one parameter is inductive and at least one inductive argument is structurally reduced by pattern matching."
+I'm certain that's incomplete, though.
+Immediately, it doesn't account for closures passed as argument which might dynamically produce recursion.
+
+
+### Return
+
+This is probably something I could resolve myself with a reread of the Koka book, but knowing that blocks are syntactic sugar for closures actually makes `return` control flow a bit confusing for me.
+A couple times now, I have written foreaches or mappings that could have used an early return to simplify the body, but since I'm a bit unclear on that interaction, I chose more verbose forms instead.
+
+
+### Conditional effects
+
+There are situations where a "hash" function [should be non-deterministic](https://research.swtch.com/randhash).
+In Koka, non-determinism is explicitly tracked with the `ndet` effect.
+So, if I want my hashmap to use a non-deterministic hash function for floating-point keys, I have to mark *every* operation on the hashmap ndet, for every type.
+Alternatively, I could make the effects polymorphic, but then they can introduce any effects, when really I just want "either ndet or total."
+
+I don't think there's a way to express this kind of constraint.
+Moreover, I think that's fine.
+Allowing conditional effects sounds like an easy way to bump up the complexity class of type inference.
+It just happens to be inconvenient for this particular case.
+
+I think the correct solution in this case is to duplicate the hashmap methods for ndet versions.
+If float64's hash function is itself ndet, then it won't work in the versions that expect total hashes.
+
+
+### Extensible data types
+
+One of the challenges I encountered when starting an Io interpreter was the representation of primitive data.
+Io is an "everything is an object" language, with many objects carrying a primitive value representing anything from a number to a list to a file descriptor.
+In proper Io, it's also possible to load extensions from shared libraries that add new primitive types dynamically.
+
+I'd rather not try to enumerate every possible primitive type as a constructor in a sum type.
+But if I don't do that, then I'm not sure how to represent this situation in Koka.
+
+The Koka book has a section about "extensible data types," which sounds like what I want.
+Unfortunately, its entire contents are "Todo."
+The grammar also mentions `open` and `extend` terms, which I imagine relate to said extensible data types, but I haven't seen any use of them.
+
+
+## Standard library
+
+
+### Documentation
+
+The standard library's documentation is extremely thin.
+Some modules have no documentation at all.
+Most that do have a single sentence.
+
+After partial type checking, I think thorough documentation on std would be one of the biggest wins for the writeability of Koka.
+And fortunately, it's a much easier thing to do.
+
+
+### The red-black tree
+
+Red-black trees are a frequent subject of examples relating to Koka's garbage collection system, Perceus.
+However, while it's provided (twice) as a sample, it isn't actually in std.
+It'd be nice to have it there as well.
+
+Actually, there are *no* polymorphic data structures that require operations over their elements.
+That would be a good way to show how to use implicits in a more relevant context than the syntax examples.
+
+
+### List and sslice
+
+At least while code was in progress, I noticed that type inference *very* frequently failed to choose between list and sslice functions, even when chained on values that were explicitly annotated as lists.
+Usually those errors went away as I progressed further through the function I was writing.
+However, when combined with the lack of partial type checking, I either have to write the explicit qualification or fly blind for a bit.
+As a proponent of autocomplete-oriented programming, the latter is an unpleasant situation for me
+
+A similar situation arises with tuple accessors when the tuple arity is hidden behind parametric types.
+One instance resisted correct inference through the completion of my hashmap module.
+
+
+## Best practices
+
+- what is the representation of strings? utf-8? codepoint array?
+- best practices for tests? there are some examples in places, and an (undocumented) std/test module; still need to check them. by any chance, is property-based testing on the roadmap?
+- are vectors able to take advantage of perceus-related optimizations, e.g. if i want to replace a single element?
+- it seems like implicits are the main approach for polymorphic types, but istm that effects could be used as well for this. is one way strictly better?
+
+### `inline`
+
+Another undocumented keyword is `inline`.
+I spotted some uses of it in koka-community packages and tried tossing it around in my code.
+But I'm not sure how the compiler treats functions marked inline.
+
+There are a few things that manual inline markers might indicate to a compiler.
+In C and C++, advanced compilers generally make their own inlining decisions, and the inline keyword mostly serves to require that the function body exist in the same compilation unit.
+For the most part, that's the mental model I have for it, but I don't think that makes much sense in Koka.
+
+Should I be using `inline` for small functions?
+Should I be using it at all?
+
+
+### `fip` and `fbip`
+
+There are multiple papers about "functional but in-place" programming in Koka.
+Part of supporting this are the `fip` and `fbip` keywords to force a function to be written in functional but in-place style.
+
+Should I always be marking my functions as `fip` or `fbip` when possible?
+Is there any downside, other than the restrictions it introduces?
+Intuitively, it seems like it would infect the API: someone else's `fip` function that depends on mine breaks if I make mine no longer `fip`.
+
+Even so, I haven't actually found an opportunity to use these markers.
+Any use of an argument function or almost any effect seems to immediately preclude them.
+Also any use of any std function, since none of them are so marked.
+
+Also, I'm a bit surprised that they're function declaration markers and not just effects, in the language about effects.
+I assume there's a reason for that.
+The FP² paper is still in my backlog, though.
+
+
+### Tests
+
+There are some instances of what appear to be automated tests in std and koka-community/std.
+They import an undocumented std/test module (I learned after writing most of this report that this is itself in koka-community/std).
+
+This is another place where I can probably answer my own questions with a bit of reading.
+Some explicit guidance on testing, or at least documentation on std/test, would be very helpful, though.
+And given the tests I glanced at, it seems like a lot is left to the programmer; a more formal framework would also be a major win.
+
+I do wonder whether property-based testing is on anyone's roadmap.
+
+
+### Vectors
+
+Hashmaps require O(1) indexing of dynamically sized arrays, and it seems like the only way to get that in base Koka is with vectors.
+However, I'm not familiar with the performance characteristics of vectors in functional programming languages.
+If I'm copying the entire vector every time I update a bucket, then I can't provide O(1) insert.
+And, notably, I did have to implement my own `replace` function to do this, so I suspect that's what's happening.
+
+Of course, one of the major draws of Koka is the functional but in-place paradigm.
+Does that work with vectors?
+I think that would require that every cell of the vector be reference-counted separately, which doesn't sound like the obvious implementation.
+
+
+### Implicits versus effects
+
+It seems like the standard way to implement generic containers with operations on elements is to use implicits.
+I'm accustomed to bounded parametric polymorphism, so it took me a while to find out about implicits (also not mentioned in the Koka book), but it wasn't hard to adjust to them.
+
+Before I learned about implicits, I tried a different approach: a polymorphic effect.
+
+```
+effect hash<k>
+  fun hash(key: k): int64
+  fun eq(k1: k, k2: k): bool
+```
+
+I didn't finish the implementation using this approach, but it seemed like it would work fine.
+So, I'm left to wonder whether one approach is really better than the other.
+Other than possible performance considerations, I think the main difference is that the effect approach requires the user to specify handlers, whereas the implicit approach is, well, implicit.
+
+
+## Editor integration
+
+
+### Installation
+
+I want to explicitly call out the installation process for Koka as something that is done overwhelmingly *right*.
+It might be a VS Code benefit, but on all of Windows, WSL, and Linux proper, it's been just a matter of installing the extension, creating a Koka file, and clicking the "install everything" button that pops up.
+
+
+### Auto-formatting
+
+I've already seen about every variant I would expect for separating a bound name from its type annotation across Koka code I've seen.
+Sometimes it's `name: type`, sometimes `name : type`, and occasionally even `name:type`.
+
+After my experiences with other languages, I feel like I shouldn't be choosing which one of these I use.
+An auto-formatter should be making this decision for me.
+
+In particular, my favorite approach here is Go's:
+"gofmt's style is no one's favorite, but gofmt is everyone's favorite."
+I fully believe that it should be the *language* that chooses an idiomatic style, once, for everyone; an auto-formatter should not be configurable (unless it is for a very old language).
+
+By coincidence, during the time I was writing this experience report today, [a corresponding issue](https://github.com/koka-lang/koka/issues/521) appeared.
+
+
+### Inlay hints
+
+One minor… curiosity, not really a complaint.
+Koka's VS Code integration hides inferred specializations by default, and reveals them while holding Ctrl+Alt.
+This is actually *exactly the opposite* of a built-in VS Code setting:
+`"editor.inlayHints.enabled": "onUnlessPressed"` shows inlay hints *except* when holding Ctrl+Alt.
+That happens to be the setting I use, but it's not such a critical thing that the provided behavior is a problem for me.
+
+
+### Language server output
+
+A bit of annoyance is that the language server's logging in VS Code goes to a pseudo-terminal instead of an output window.
+
+
+## The Koka book
+
+The Koka book has several sections that are unhelpfully short, "todo," or even totally empty:
+
+- 3.3.4. Matching
+- 3.3.5. Extensible Data Types
+- 3.3.6. Inductive, Co-inductive, and Recursive Types
+- 3.4.9. Side-effect Isolation
+- 3.4.12. Linear Effects
+- 3.4.13 Named and Scoped Handlers
+
+Pattern matching at least works how I expect from other languages, so it's mostly just a matter of syntax, which is easy to find in the core library.
+I expect side-effect isolation is probably meant to be about the `run` function described in the row-polymorphic effects paper.
+Some more explanation on the other topics would be helpful.
+
+There is a ["hidden" docsite](https://koka-community.github.io/koka-docs/koka-docs.kk.html) in koka-community that fills out some of these sections, along with describing or mentioning a number of other topics I've mentioned in this report.
+I noticed it when I first found koka-community, but it slipped my mind to check it.
+Thanks to Tim Whiting for pointing me back to it (along with all your other work on Koka!).
+
+Aside from these sections, there were a couple minor issues I noticed in the grammar appendices which I'm reporting here instead of in an issue due to laziness:
+
+- A number of terms in the lexical grammar are typechecked as Koka, leading to some strange results.
+- The link to the Haskell implementation of the layout seems like it points to the wrong line today.
+
+
+## Overall
+
+Despite all my complaining, Koka is absolutely a language I want to continue writing.
+Programming with effects feels like a very natural way to view the programming concepts I'm familiar with.
+Functional programming is always fun for me, and the escape hatch into procedural-style mutability can save a lot of thinky goop.
+
+A lot of these points are places I will probably look into contributing myself.
