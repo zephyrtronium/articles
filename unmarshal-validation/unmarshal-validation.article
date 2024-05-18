@@ -5,7 +5,7 @@ Tags: go, validation, types
 Summary: Combining some obscure features of Go lets us ensure we never decode invalid objects, keeping our APIs and systems safe.
 
 Branden J Brown
-Business Applications Engineer, Velocigo
+Software Engineer
 https://gitlab.com/zephyrtronium/
 
 
