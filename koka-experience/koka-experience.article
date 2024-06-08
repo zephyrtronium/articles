@@ -214,11 +214,6 @@ One instance resisted correct inference through the completion of my hashmap mod
 
 ## Best practices
 
-- what is the representation of strings? utf-8? codepoint array?
-- best practices for tests? there are some examples in places, and an (undocumented) std/test module; still need to check them. by any chance, is property-based testing on the roadmap?
-- are vectors able to take advantage of perceus-related optimizations, e.g. if i want to replace a single element?
-- it seems like implicits are the main approach for polymorphic types, but istm that effects could be used as well for this. is one way strictly better?
-
 ### `inline`
 
 Another undocumented keyword is `inline`.
