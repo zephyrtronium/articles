@@ -30,7 +30,8 @@
 				"lang-paradigm",
 				"lang-products",
 				"lang-modules",
-				"lang-distribution"
+				"lang-distribution",
+				"lang-concurrency"
 			]
 		},
 		{

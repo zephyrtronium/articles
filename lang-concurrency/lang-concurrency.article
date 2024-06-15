@@ -1,0 +1,85 @@
+# The Birth and Death of Structured Concurrency
+Thoughts on a Programming Language
+14 Jun 2024
+Tags: programming language, types, structured concurrency
+Summary: What replaces unrestricted concurrency in a language that refuses it?
+
+Branden J Brown
+Software Engineer
+https://gitlab.com/zephyrtronium/
+
+
+## Structures of Concurrency
+
+One of the main goals of ligma lang is to have a language that implements [*only* structured concurrency](/articles/lang.html#3.).
+This is an exploration of how that manifests.
+
+Just like when replacing unrestricted (`goto`) control flow with structured control flow, we end up with multiple new concepts.
+I arrived at two: what I call *collect groups* and *select groups*.
+The former expresses "compute all of these results, concurrently," and the latter is "compute any one of these results."
+If we include two variants of each to express static and dynamic structures, and allow cancellation of groups, we cover most uses for concurrency.
+
+Collect and select are dual; the former corresponds to products and the latter to sums.
+I think that's a sign that the idea is solid.
+
+Well, insofar as structured concurrency itself is actually the best thing.
+And in exploring collect and select concurrency, I think I've reached the conclusion that it *isn't*.
+
+
+## Sequence Break
+
+There's a different option that's more radical but definitely powerful.
+Instead of having special control flow for the parts of a program we want to make concurrent, just have concurrency be the default.
+Make operations sequential only when they have an actual dependency.
+
+[Haxl](https://www.youtube.com/watch?v=sT6VJkkhy0o) has explored this concept in the context of Haskell.
+It requires wrapping every operation in a custom type in order to use them in the concurrent environment, but that's because it has to fit itself into Haskell's existing sequential model.
+With direct support designed into the language, and perhaps a bit less focus on composing with other language elements, concurrent-by-default could become much more accessible.
+
+In principle, we could even automatically parallelize loops when each iteration is independent.
+It would be nice to have a way to guarantee concurrent looping as a way to help avoid performance cliffs, but this would be just a matter of formalizing loops whose bodies are combinators.
+
+I think concurrent-by-default totally subsumes the collect group idea.
+Computations naturally collect when you use them in a product-y way.
+
+I find two concerns that come up with this idea.
+The first is that it might be hard to express an *incomplete* computation as an expression result.
+The machinery I have in mind for select groups likely help with that, by allowing us to express a group of one process.
+
+The second concern is how this interacts with synchronization primitives.
+I suspect it's fine to treat internally synchronized types like atomics and monitors as simply never forming dependencies for the purpose of concurrency analysis.
+Externally synchronized data, i.e. mutexes separate from the variables they protect, probably require dedicated support in the language; it might be preferable to just not allow them.
+
+
+## Select
+
+That's the collect part down.
+Select groups still need something different.
+
+The insight with selection is that any number of processes are computing a result of the same type.
+In other words, we can handle them with just a unary type constructor.
+Like "pointer to T" or "array of T," we can have "eventually T."
+Or, to use a more familiar term, "future T."
+
+Select groups as I imagine them just generalize the familiar concept of futures to multiple processors per term.
+The first process to compute a result (or one selected non-deterministically if multiple are ready at the time of waiting) becomes the result for the whole group, and the rest halt.
+Alternatively, we can *cancel* the entire group, supplying the group's result immediately – possibly from outside.
+
+Concretely, the operations we want include:
+- Express a future type.
+	Let's say if we have a type `T`, then a future `T` could be `@T`, roughly borrowing an ancient notation from Io.
+- Create a select group.
+	The syntax for this will probably depend on how we express literals of other varieties of types, which I want to spend more time thinking about.
+- Add a process to an existing select group.
+	A process starts executing as soon as it is added.
+	Syntactically, if we make this a binary operation with the group operand as its result, we can use a builder-like notation to add many processes at once.
+- Wait on a select group, blocking until a result is available.
+	All waits on a given group yield the same result.
+	Similar to the dereferencing operator of C-like languages, we can reuse the type constructor notation: if we have a value `bocchi` of type `@T`, then the expression `ryou = @bocchi` waits for `bocchi` to complete and assigns the result to `ryou`.
+- Cancel a select group with the result to yield.
+	If a process has already completed, this may do nothing, per the rule on waiting.
+
+There is one important subtlety to this.
+A future containing *zero* processors can operate on uninhabited types.
+That's a [very](https://counterexamples.org/eventually-nothing.html) [common](https://counterexamples.org/dubious-evidence.html) [source](https://counterexamples.org/false-pretenses.html) of unsoundness across programming languages.
+It seems feasible to prevent waiting on empty groups, but it isn't necessarily a bad thing to do so when the group could have processes added after waiting begins.
