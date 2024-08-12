@@ -1,0 +1,156 @@
+# Mixing Koka and C
+Koka
+11 Aug 2024
+Tags: koka, vulkan
+Summary: Exploring Koka's C FFI.
+
+Branden J Brown
+Software Engineer
+https://gitlab.com/zephyrtronium/
+
+
+## The project
+
+I have had it in my brain for a while now that Koka's effect handlers are the perfect system to robustly handle various fragile scenarios with Vulkan.
+The main thing that's missing is any degree of Vulkan binding.
+So, I decided to try writing one.
+
+This article will be a bit different than my usual ones, because I'll want to use it to provide context when I ask questions in the Koka community.
+(Good luck, Tim!)
+So, I'll publish early and update often, insofar as I continue working on this idea.
+The corresponding code as I write it will be [on GitHub](https://github.com/zephyrtronium/kkvk), usually not in a state of compiling.
+
+The definition of success here will be just getting device info as a Koka data type.
+I might consider rendering a triangle to be a stretch goal, but that also implies getting a window, which I am not looking forward to.
+
+As I write this section, I have only the initial setup done.
+Really, the main intent of this article is to keep track of my progress and questions.
+I hope it will also serve as useful documentation, or at least a starting point for such, in the future.
+
+Speaking of documentation, the starting point here is the Koka community docs, in the section on [integrated external definitions](https://koka-community.github.io/koka-docs/koka-docs.kk.html#sec-integrated-external-definitions).
+It's a good intro to the capabilities of the FFI system, but it stops short of where I want to go.
+
+
+### Target API
+
+For reference, I'm hoping to provide an API that (so far) looks something like this:
+
+```
+module vulkan/vulkan
+
+// Vulkan instance.
+abstract value struct vk
+
+// Vulkan API version.
+abstract value struct vk-version
+
+pub val version-v10 = Vk-Version(vk-version-v10) // magic values
+pub val version-v11 = Vk-Version(vk-version-v11)
+pub val version-v12 = Vk-Version(vk-version-v12)
+pub val version-v13 = Vk-Version(vk-version-v13)
+
+// Call VkCreateInstance.
+pub fun vk/create(info: instance-create, app: maybe<application>): vk
+// TODO(zeph): VkAllocatorCallbacks wants to request specific alignment from
+// its allocator, but kk_malloc doesn't provide that capability.
+
+// VkInstanceCreateInfo.
+pub struct instance-create
+  enabled-layers: list<string> = Nil
+  enabled-extensions: list<string> = Nil
+  enumerate-portability: bool = False
+  next: list<instance-create-next> = Nil
+
+// Types that can appear in VkInstanceCreateInfo's pNext chain.
+pub type instance-create-next
+  // TODO
+
+// VkApplicationInfo.
+pub struct application
+  application-name: string
+  application-version: int32
+  engine-name: string
+  engine-version: int32
+  api-version: vk-version = version-v10
+```
+
+This will be all manually generated.
+The idea is to create a pleasant experience in Koka first with a minimal choice of features, then figure out how to generate that style from vk.xml.
+
+
+## References
+
+The API for Koka's C FFI is [kklib](https://github.com/koka-lang/koka/blob/dev/kklib/).
+As far as I'm aware, the `include/` directory therein is also the best documentation available on Koka's representations of its own types.
+
+The most broadly useful header in kklib is `<kklib.h>`.
+Herein are defined `kk_context_t` and `kk_box_t`, which seem applicable to almost any C integration.
+`<kklib/platform.h>`, included by `<kklib.h>`, also has good documentation on implementation details of integer types used in kklib.
+I suspect I'll be diving into `<kklib/maybe.h>` soon.
+
+It's always helpful to see how these things are used in practice.
+Fortunately, Koka's standard library is built on kklib.
+`std/text/regex` is particularly interesting as an example of integrating with PCRE: [Koka side](https://github.com/koka-lang/koka/blob/dev/lib/std/text/regex.kk) and [C side](https://github.com/koka-lang/koka/blob/dev/lib/std/text/regex-inline.c).
+
+Reading regex.kk introduced my first specific question:
+What are the details on the bracketed form of `extern import c`?
+I see this:
+
+```
+extern import
+  c { conan="pcre2/[>=10.37]"; vcpkg="pcre2"; library="pcre2-8" }
+```
+
+I don't know whether that's strictly necessary if I'm going to use e.g. LunarG's Vulkan SDK, nor whether that's an exhaustive list of options, nor where to find the values to put in there.
+(I am fortunate to have never used vcpkg, and I've never even heard of conan.)
+
+
+## Starting out
+
+The first step for me is teaching VS Code where the kklib includes live, so that my type information and autocomplete are accurate.
+On Windows, where I'm working on this, that's `%LOCALAPPDATA%\koka\share\koka\v3.1.2\kklib\include`.
+I'm told that on MacOS, it's `/usr/local/share/koka/v3.1.2/kklib/include`, and presumably Linux is similar.
+Thanks to Tim Whiting for pointing me to it.
+
+Next, create directories and files:
+
+- .gitignore (ignoring .koka and .vscode)
+- vulkan
+	+ vulkan-inline.c
+	+ vulkan.kk
+
+And I'm ready to start authoring.
+I'll skip transcribing every detail and only address the points that feel notable.
+
+The first such point is that it seems like I don't actually *need* to include kklib.h.
+I still want it for Intellisense, but std's regex-inline.c doesn't include it.
+Presumably it is included implicitly in the code that the Koka compiler generates.
+There is a proper `#pragma once` on it, though, so it's fine if that is the case.
+
+Another detail that I happened to notice is that kklib.h has a `#define WIN32_LEAN_AND_MEAN`, which means whether it is included before or after vulkan.h will make a difference.
+
+
+## First questions
+
+After defining the types on the Koka side, I can start on C functions.
+But I hit a blocker almost immediately:
+What C type do I use for a Koka struct type?
+
+Ideally I want to accept an `instance-create` and a `maybe<application>` directly.
+I could break the fields out to separate arguments in the C functions, but that will become very painful once I'm working with things like render passes and synchronization that have dozens of fields in their infos.
+
+I also see already that I'll need similar information about the representation of sum types.
+At some point, I'll need to convert a `list<instance-create-next>` or any other extension info list to a pNext chain, which is a non-homogeneous linked list of C structs that requires custom handling for every case.
+The only technique I can imagine to do that without handling an `instance-create-next` in C would be to write a C function that mutates a boxed `VkInstanceCreateInfo*` *for each variant*.
+
+Based on my reading of kklib.h, I am *pretty sure* that the answer to both of these is `kk_datatype_t`.
+It's a packed type that efficiently represents a "general datatype with constructors and singletons."
+Unfortunately, there are very few uses of `kk_datatype_t` around – although an important note is that it seems to be used for lists.
+And it seems like `kk_block_t` will also be relevant.
+Maybe I am just too tired at this point, but I'm not clear on the relationship between those two.
+
+
+## Stopping point
+
+As mentioned, I need sleep.
+I'll stop here to ask questions and let it sit overnight.
