@@ -46,7 +46,8 @@
 				"copilot",
 				"generics-enums",
 				"randomness",
-				"bocchi"
+				"bocchi",
+				"concurrency"
 			]
 		}
 	]

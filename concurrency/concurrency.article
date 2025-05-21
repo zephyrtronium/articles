@@ -1,0 +1,139 @@
+# Concurrency and Parallelism, Specifically
+Miscellany
+20 May 2025
+Tags: computer science
+Summary: Concurrency is not parallelism. What exactly is it, then?
+
+Branden J Brown
+Software Engineer
+https://gitlab.com/zephyrtronium/
+
+
+## Concurrency Is Not Parallelism
+
+They really aren't the same.
+
+Concurrency is not parallelism; don't assume that adding coroutines (or goroutines, or async, or threads, or …) to your program will make it run faster.
+Not to get too language-specific in an article about programming language theory, but this catchphrase has been floating around the Go community in particular since [Rob Pike's titular talk](https://go.dev/blog/waza-talk) in 2012.
+
+It's certainly true – one of many examples of the "always benchmark" adage – but it's a negative definition.
+Probably most Gophers, and many programmers in other environments, know that concurrency is not parallelism.
+Many of those people can give examples to illustrate the difference.
+However, far fewer can tell you what concurrency or parallelism *is*.
+
+
+## Execution
+
+Concurrency and parallelism are both properties of *execution models*, logical formalizations of how a computer runs code.
+
+If you studied computer science at a university, you probably learned about Turing machines.
+The description of how Turing machines work – the idea that they have a tape, a head, and some "step function" that defines how to update the tape content and head position for each step – is an execution model.
+On the functional side, the application rule in untyped lambda calculus forms another execution model.
+
+More concretely, the instruction set architecture for your CPU defines an execution model.
+It describes things like how memory and registers work, how instructions modify the contents of those, and where the CPU will look to find the next instruction after each one it runs.
+
+Every programming language defines its own respective execution model, too.
+It's pretty much the thing that *makes* it a programming language.
+The job of a compiler or interpreter is to implement the language's execution model in terms of the host platform's.
+
+Even software APIs can define their own execution models.
+For example, Vulkan, the cross-platform-unless-you're-Apple GPU API, has a very thorough and precise description of how commands will execute on a device with respect to the order in which they're submitted to a queue and the occurrence of certain other operations.
+
+
+## Order
+
+A common element of every execution model is an idea of execution order.
+Given the definition of a function in Python, for example, if you pick two statements, you can usually answer pretty easily which one *happens before* the other: the one that's nearer the top.
+If it has a loop, you act as if the loop body is copied for each iteration; the statements in the source code are repeated, but you can still tell which of two particular instances of those statements happens first.
+
+That phrase *happens before* is actually technical terminology.
+It has a precise definition (for a given execution model), but generally speaking, it means exactly what it sounds like.
+Execution model authors address the fine details when constructing their *happens before* relation, but there's effectively always a component like "in a simple list of statements, if `A` precedes `B`, then `A` happens before `B`."
+
+*Happens before* is the critical component of the definition of concurrency:
+
+> A program is *concurrent* if there exist distinct evaluation steps `A`, `B`, and `J` such that `A` *happens before* `J` and `B` *happens before* `J`, but neither `A` *happens before* `B` nor `B` *happens before* `A`.
+> An execution model has *concurrency* if it contains concurrent programs.
+
+In simpler words, an execution model has concurrency if it allows statements to run without it being possible to know which one runs *first*.
+If I `go bocchi(); ryō()` in Go, there's no way to know whether the statements in `bocchi` or `ryō` run first, or how often they switch between them.
+Even if we simulate the statements ourselves, one at a time, we have to make arbitrary decisions on which statement to do next between the different goroutines.
+
+
+## Simultaneously
+
+We also need an idea of execution order to define parallelism.
+The definition goes like this:
+
+> Two or more statements are *executed in parallel* if the effects of all those statements become visible in the same execution step.
+> An execution model has *parallelism* if it defines satisfiable conditions in which statements are executed in parallel.
+
+That is to say, parallelism is when multiple computations happen at the same time.
+Seems intuitive, right?
+
+Interestingly, we don't need *happens before* at all.
+In fact, if `X` *happens before* `Y`, then `X` and `Y` absolutely cannot be parallel.
+
+Huh…
+
+
+## Concurrent and Parallel
+
+There's a bit of a contrast between these two definitions.
+Parallelism specifically defines the execution order of two statements as being "at the same time," whereas concurrency means being unable to define the execution order of two statements.
+
+That's confusing, though.
+Isn't that a contradiction?
+I mean, with this, if we define an execution model to be concurrent, doesn't that mean we *can't* define it to be parallel?
+
+Yeah. Pretty much.
+
+Here's how it works in practice.
+Typically speaking, if you're (rigorously) designing a programming language, you choose a *happens before* relation for your execution model that enables concurrency.
+You don't particularly address parallelism, at least within the language semantics, the logical framework; as mentioned, it's difficult to specify both.
+
+The language *implementation* can then find statements `A` and `B` which are concurrent, and it can say, "The execution order between `A` and `B` is not defined by the language, so 'at the same time' is a valid order for them."
+Then, the compiler or interpreter can use code that the target architecture and operating system have defined as "executed in parallel."
+We use concurrency as a justification to provide parallelism.
+
+
+## Combinations Thereof
+
+While concurrency can enable parallelism, they remain different things.
+In fact, they are orthogonal: you can have either without the other, both, or neither.
+
+The "neither" case is familiar to just about anyone who has written code.
+That's when statements are executed in written order, always, with no exceptions.
+If you don't use threads, async, coroutines, &c. in just about any given programming language, then you are writing code that is neither concurrent nor parallel.
+
+"Both" is also pretty common.
+Think threads or processes on a multicore system.
+Most programming environments follow the steps I gave above to implement parallelism underneath concurrency, whether at the language level or by enabling threading through the operating system.
+(Actually, the operating system probably does the same thing: OS threads are not necessarily parallel, but they are always concurrent. Parallelism is kind of an implementation detail.)
+
+"Concurrent but not parallel" happens a lot, too.
+Python with the global interpreter lock provides threads and async that both are concurrent but run in lockstep.
+JavaScript had the same deal until service workers became a thing.
+And for any programming language, if we only have one CPU thread, then obviously, we can't run multiple statements at the same time.
+
+Well, actually, that last one isn't quite right, because of the "parallel but not concurrent" condition.
+Even if a CPU only has one thread, it might provide SIMD operations that can be understood to run multiple copies of the same operation on several different inputs at the same time.
+(You can also interpret SIMD as running an operation on a single list of values, which would not be parallel.)
+There are also some CPU architectures that have a feature called VLIW, which means they run multiple *arbitrary* instructions in parallel.
+Vulkan defines that all threads within a workgroup execute each statement of a shader at the same time, unless a "non-uniform execution" device extension is enabled.
+
+
+## On Rigor
+
+Now you have real definitions of concurrency and parallelism.
+These definitions, along with the explanations of how they're realized, are good enough to withstand academic scrutiny.
+
+There is much more below the surface of this, though.
+If you use Go, you can find the execution model as part of the [memory model](https://go.dev/ref/mem).
+C and C++ define their execution models in their respective standards.
+I know Java also has a rigorous memory model, which implies an execution model.
+As I mentioned, [Vulkan](https://docs.vulkan.org/spec/latest/chapters/fundamentals.html#fundamentals-execmodel) has an extremely detailed execution model.
+Earlier, I skimmed over "the fine details" of *happens before*; you can read those documents to get an idea of what I mean.
+
+This is real computer science, done by real computer scientists.
